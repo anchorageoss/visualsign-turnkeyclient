@@ -68,11 +68,16 @@ type TurnkeyVisualSignResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
-// TurnkeyBootProof represents the boot proof object in the response
+// TurnkeyBootProof represents the boot proof object in the response.
+// Fields match the Turnkey visualsign API bootProof response object.
+// See: https://docs.turnkey.com/concepts/enclave-secure-channels
 type TurnkeyBootProof struct {
 	AwsAttestationDocB64   string `json:"awsAttestationDocB64"`
 	QosManifestB64         string `json:"qosManifestB64"`
 	QosManifestEnvelopeB64 string `json:"qosManifestEnvelopeB64"`
+	EphemeralPublicKeyHex  string `json:"ephemeralPublicKeyHex"`
+	EnclaveApp             string `json:"enclaveApp"`
+	DeploymentLabel        string `json:"deploymentLabel"`
 }
 
 // TurnkeySignature represents the signature object in the response
@@ -110,6 +115,9 @@ type SignablePayloadResponse struct {
 	Attestations                     map[AttestationType]string `json:"attestations"`
 	QosManifestB64                   string                     `json:"qosManifestB64,omitempty"`
 	QosManifestEnvelopeB64           string                     `json:"qosManifestEnvelopeB64,omitempty"`
+	EphemeralPublicKeyHex            string                     `json:"ephemeralPublicKeyHex,omitempty"`
+	EnclaveApp                       string                     `json:"enclaveApp,omitempty"`
+	DeploymentLabel                  string                     `json:"deploymentLabel,omitempty"`
 }
 
 // ECDSASignature represents an ECDSA signature for ASN.1 encoding

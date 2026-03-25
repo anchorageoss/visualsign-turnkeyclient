@@ -87,6 +87,12 @@ func runParseCommand(ctx context.Context, cmd *cli.Command) error {
 	} else {
 		fmt.Fprintf(os.Stderr, "⚠ No attestations available\n")
 	}
+	if response.EphemeralPublicKeyHex != "" {
+		fmt.Fprintf(os.Stderr, "✓ Boot proof metadata:\n")
+		fmt.Fprintf(os.Stderr, "  - ephemeralPublicKeyHex: %s\n", response.EphemeralPublicKeyHex)
+		fmt.Fprintf(os.Stderr, "  - enclaveApp: %s\n", response.EnclaveApp)
+		fmt.Fprintf(os.Stderr, "  - deploymentLabel: %s\n", response.DeploymentLabel)
+	}
 
 	return nil
 }

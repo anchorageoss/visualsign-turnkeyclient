@@ -146,11 +146,15 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		attestations[BootAttestationKey] = turnkeyResp.BootProof.AwsAttestationDocB64
 	}
 
-	// Extract qosManifestB64 and qosManifestEnvelopeB64 from bootProof if available
+	// Extract boot proof fields if available
 	var qosManifestB64, qosManifestEnvelopeB64 string
+	var ephemeralPublicKeyHex, enclaveApp, deploymentLabel string
 	if turnkeyResp.BootProof != nil {
 		qosManifestB64 = turnkeyResp.BootProof.QosManifestB64
 		qosManifestEnvelopeB64 = turnkeyResp.BootProof.QosManifestEnvelopeB64
+		ephemeralPublicKeyHex = turnkeyResp.BootProof.EphemeralPublicKeyHex
+		enclaveApp = turnkeyResp.BootProof.EnclaveApp
+		deploymentLabel = turnkeyResp.BootProof.DeploymentLabel
 	}
 
 	return &SignablePayloadResponse{
@@ -159,6 +163,9 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		Attestations:                     attestations,
 		QosManifestB64:                   qosManifestB64,
 		QosManifestEnvelopeB64:           qosManifestEnvelopeB64,
+		EphemeralPublicKeyHex:            ephemeralPublicKeyHex,
+		EnclaveApp:                       enclaveApp,
+		DeploymentLabel:                  deploymentLabel,
 	}, nil
 }
 
