@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -340,6 +341,9 @@ func TestAPIKeyPrivateKeyProperties(t *testing.T) {
 	require.NotNil(t, apiKey.PrivateKey.Y)
 	require.Equal(t, elliptic.P256(), apiKey.PrivateKey.Curve)
 
-	// Verify public key is on the curve
-	require.True(t, elliptic.P256().IsOnCurve(apiKey.PrivateKey.X, apiKey.PrivateKey.Y))
+	// Verify public key is on the curve using crypto/ecdh (non-deprecated API)
+	ecdhKey, err := apiKey.PrivateKey.ECDH()
+	require.NoError(t, err)
+	_, err = ecdh.P256().NewPublicKey(ecdhKey.PublicKey().Bytes())
+	require.NoError(t, err)
 }

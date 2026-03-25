@@ -2,6 +2,7 @@ package keys
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"encoding/hex"
@@ -63,8 +64,14 @@ func loadAPIKeyFromPath(configDir, keyName string) (*api.TurnkeyAPIKey, error) {
 		D: new(big.Int).SetBytes(privateKeyBytes),
 	}
 
-	// Calculate public key point
-	privateKey.X, privateKey.Y = ecdsaCurve.ScalarBaseMult(privateKeyBytes)
+	// Calculate public key point using crypto/ecdh (non-deprecated API)
+	ecdhPrivKey, err := ecdh.P256().NewPrivateKey(privateKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ecdh private key: %w", err)
+	}
+	pubBytes := ecdhPrivKey.PublicKey().Bytes()
+	privateKey.X = new(big.Int).SetBytes(pubBytes[1:33])
+	privateKey.Y = new(big.Int).SetBytes(pubBytes[33:65])
 
 	return &api.TurnkeyAPIKey{
 		PublicKey:  publicKeyHex,
@@ -156,13 +163,24 @@ func TestKeyDerivation(t *testing.T) {
 	key, err := loadAPIKeyFromPath(testdataDir, "valid")
 	require.NoError(t, err)
 
-	// Verify that X,Y are on the curve
-	isOnCurve := elliptic.P256().IsOnCurve(key.PrivateKey.X, key.PrivateKey.Y)
-	assert.True(t, isOnCurve, "Public key point should be on the curve")
+	// Verify that X,Y are on the curve using crypto/ecdh (non-deprecated API)
+	ecdhKey, err := key.PrivateKey.ECDH()
+	require.NoError(t, err)
+	_, err = ecdh.P256().NewPublicKey(ecdhKey.PublicKey().Bytes())
+	assert.NoError(t, err, "Public key point should be on the curve")
 
-	// Verify the public key can be reconstructed
+	// Verify the public key can be reconstructed using crypto/ecdh
 	privateBytes := key.PrivateKey.D.Bytes()
-	x, y := elliptic.P256().ScalarBaseMult(privateBytes)
+	if len(privateBytes) < 32 {
+		padded := make([]byte, 32)
+		copy(padded[32-len(privateBytes):], privateBytes)
+		privateBytes = padded
+	}
+	ecdhPrivKey, err := ecdh.P256().NewPrivateKey(privateBytes)
+	require.NoError(t, err)
+	derivedPubBytes := ecdhPrivKey.PublicKey().Bytes()
+	x := new(big.Int).SetBytes(derivedPubBytes[1:33])
+	y := new(big.Int).SetBytes(derivedPubBytes[33:65])
 	assert.Equal(t, 0, x.Cmp(key.PrivateKey.X), "X coordinate should match")
 	assert.Equal(t, 0, y.Cmp(key.PrivateKey.Y), "Y coordinate should match")
 }
@@ -241,8 +259,13 @@ func BenchmarkKeyDerivation(b *testing.B) {
 	privateKeyHex := "487f361ddfd73440e707f4daa6775b376859e8a3c9f29b3bb694a12927c0213c"
 	privateKeyBytes, _ := hex.DecodeString(privateKeyHex)
 
+	ecdhPrivKey, err := ecdh.P256().NewPrivateKey(privateKeyBytes)
+	if err != nil {
+		b.Fatal(err)
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		elliptic.P256().ScalarBaseMult(privateKeyBytes)
+		_ = ecdhPrivKey.PublicKey()
 	}
 }

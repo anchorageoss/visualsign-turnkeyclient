@@ -19,7 +19,7 @@ func NewFormatter() *Formatter {
 // FormatPCRValues formats PCR values with descriptive labels and proper formatting
 func (f *Formatter) FormatPCRValues(pcrs map[uint][]byte, title string, indent string) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("\n%s%s:\n", indent, title))
+	fmt.Fprintf(&sb, "\n%s%s:\n", indent, title)
 
 	// Helper function to check if PCR is all zeros
 	isAllZeros := func(pcr []byte) bool {
@@ -34,23 +34,23 @@ func (f *Formatter) FormatPCRValues(pcrs map[uint][]byte, title string, indent s
 	// PCR 0 and 1: QoS hash
 	for idx := uint(0); idx <= 1; idx++ {
 		if pcr, exists := pcrs[idx]; exists && len(pcr) > 0 {
-			sb.WriteString(fmt.Sprintf("%s    PCR[%d]: %s (QoS hash)\n", indent, idx, hex.EncodeToString(pcr)))
+			fmt.Fprintf(&sb, "%s    PCR[%d]: %s (QoS hash)\n", indent, idx, hex.EncodeToString(pcr))
 		}
 	}
 
 	// PCR 2: General PCR
 	if pcr, exists := pcrs[2]; exists && len(pcr) > 0 {
-		sb.WriteString(fmt.Sprintf("%s    PCR[2]: %s\n", indent, hex.EncodeToString(pcr)))
+		fmt.Fprintf(&sb, "%s    PCR[2]: %s\n", indent, hex.EncodeToString(pcr))
 	}
 
 	// PCR 3: Hash of the AWS Role
 	if pcr, exists := pcrs[3]; exists && len(pcr) > 0 {
-		sb.WriteString(fmt.Sprintf("%s    PCR[3]: %s (Hash of the AWS Role)\n", indent, hex.EncodeToString(pcr)))
+		fmt.Fprintf(&sb, "%s    PCR[3]: %s (Hash of the AWS Role)\n", indent, hex.EncodeToString(pcr))
 	}
 
 	// PCR 4: Legacy
 	if pcr, exists := pcrs[4]; exists && len(pcr) > 0 {
-		sb.WriteString(fmt.Sprintf("%s    PCR[4]: %s (legacy)\n", indent, hex.EncodeToString(pcr)))
+		fmt.Fprintf(&sb, "%s    PCR[4]: %s (legacy)\n", indent, hex.EncodeToString(pcr))
 	}
 
 	// PCR 5-15: Check if all are zeros and display accordingly
@@ -70,7 +70,7 @@ func (f *Formatter) FormatPCRValues(pcrs map[uint][]byte, title string, indent s
 	// Display non-zero PCRs individually
 	for _, idx := range nonZeroPCRs {
 		if pcr, exists := pcrs[idx]; exists {
-			sb.WriteString(fmt.Sprintf("%s    PCR[%d]: %s\n", indent, idx, hex.EncodeToString(pcr)))
+			fmt.Fprintf(&sb, "%s    PCR[%d]: %s\n", indent, idx, hex.EncodeToString(pcr))
 		}
 	}
 
@@ -89,9 +89,9 @@ func (f *Formatter) FormatPCRValues(pcrs map[uint][]byte, title string, indent s
 			}
 
 			if start == end {
-				sb.WriteString(fmt.Sprintf("%s    PCR[%d]: %s (all zeros)\n", indent, start, zeroHash))
+				fmt.Fprintf(&sb, "%s    PCR[%d]: %s (all zeros)\n", indent, start, zeroHash)
 			} else {
-				sb.WriteString(fmt.Sprintf("%s    PCR[%d-%d]: %s (all zeros)\n", indent, start, end, zeroHash))
+				fmt.Fprintf(&sb, "%s    PCR[%d-%d]: %s (all zeros)\n", indent, start, end, zeroHash)
 			}
 			i++
 		}
@@ -105,39 +105,39 @@ func (f *Formatter) FormatManifest(m *manifest.Manifest) string {
 	var sb strings.Builder
 
 	sb.WriteString("Namespace:\n")
-	sb.WriteString(fmt.Sprintf("  Name: %s\n", m.Namespace.Name))
-	sb.WriteString(fmt.Sprintf("  Nonce: %d\n", m.Namespace.Nonce))
-	sb.WriteString(fmt.Sprintf("  Quorum Key: %s\n", hex.EncodeToString(m.Namespace.QuorumKey)))
+	fmt.Fprintf(&sb, "  Name: %s\n", m.Namespace.Name)
+	fmt.Fprintf(&sb, "  Nonce: %d\n", m.Namespace.Nonce)
+	fmt.Fprintf(&sb, "  Quorum Key: %s\n", hex.EncodeToString(m.Namespace.QuorumKey))
 
 	sb.WriteString("\nPivot:\n")
-	sb.WriteString(fmt.Sprintf("  Hash: %s\n", hex.EncodeToString(m.Pivot.Hash[:])))
-	sb.WriteString(fmt.Sprintf("  Restart: %s\n", m.Pivot.Restart))
-	sb.WriteString(fmt.Sprintf("  Args: %v\n", m.Pivot.Args))
+	fmt.Fprintf(&sb, "  Hash: %s\n", hex.EncodeToString(m.Pivot.Hash[:]))
+	fmt.Fprintf(&sb, "  Restart: %s\n", m.Pivot.Restart)
+	fmt.Fprintf(&sb, "  Args: %v\n", m.Pivot.Args)
 
-	sb.WriteString(fmt.Sprintf("\nManifest Set (threshold: %d):\n", m.ManifestSet.Threshold))
+	fmt.Fprintf(&sb, "\nManifest Set (threshold: %d):\n", m.ManifestSet.Threshold)
 	for i, member := range m.ManifestSet.Members {
 		pubKeyStr := hex.EncodeToString(member.PubKey)
 		if len(pubKeyStr) > 16 {
 			pubKeyStr = pubKeyStr[:16] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("  Member %d: %s (%s)\n", i+1, member.Alias, pubKeyStr))
+		fmt.Fprintf(&sb, "  Member %d: %s (%s)\n", i+1, member.Alias, pubKeyStr)
 	}
 
-	sb.WriteString(fmt.Sprintf("\nShare Set (threshold: %d):\n", m.ShareSet.Threshold))
+	fmt.Fprintf(&sb, "\nShare Set (threshold: %d):\n", m.ShareSet.Threshold)
 	for i, member := range m.ShareSet.Members {
 		pubKeyStr := hex.EncodeToString(member.PubKey)
 		if len(pubKeyStr) > 16 {
 			pubKeyStr = pubKeyStr[:16] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("  Member %d: %s (%s)\n", i+1, member.Alias, pubKeyStr))
+		fmt.Fprintf(&sb, "  Member %d: %s (%s)\n", i+1, member.Alias, pubKeyStr)
 	}
 
 	sb.WriteString("\nEnclave:\n")
-	sb.WriteString(fmt.Sprintf("  PCR0: %s\n", hex.EncodeToString(m.Enclave.Pcr0)))
-	sb.WriteString(fmt.Sprintf("  PCR1: %s\n", hex.EncodeToString(m.Enclave.Pcr1)))
-	sb.WriteString(fmt.Sprintf("  PCR2: %s\n", hex.EncodeToString(m.Enclave.Pcr2)))
-	sb.WriteString(fmt.Sprintf("  PCR3: %s\n", hex.EncodeToString(m.Enclave.Pcr3)))
-	sb.WriteString(fmt.Sprintf("  QoS Commit: %s\n", m.Enclave.QosCommit))
+	fmt.Fprintf(&sb, "  PCR0: %s\n", hex.EncodeToString(m.Enclave.Pcr0))
+	fmt.Fprintf(&sb, "  PCR1: %s\n", hex.EncodeToString(m.Enclave.Pcr1))
+	fmt.Fprintf(&sb, "  PCR2: %s\n", hex.EncodeToString(m.Enclave.Pcr2))
+	fmt.Fprintf(&sb, "  PCR3: %s\n", hex.EncodeToString(m.Enclave.Pcr3))
+	fmt.Fprintf(&sb, "  QoS Commit: %s\n", m.Enclave.QosCommit)
 
 	return sb.String()
 }
@@ -187,7 +187,7 @@ func (f *Formatter) FormatPCRValidationResults(results []PCRValidationResult, in
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("\n%sPCR Validation Results:\n", indent))
+	fmt.Fprintf(&sb, "\n%sPCR Validation Results:\n", indent)
 
 	for _, result := range results {
 		status := "✅ PASS"
@@ -195,9 +195,9 @@ func (f *Formatter) FormatPCRValidationResults(results []PCRValidationResult, in
 			status = "❌ FAIL"
 		}
 
-		sb.WriteString(fmt.Sprintf("%s  PCR[%d]: %s\n", indent, result.Index, status))
-		sb.WriteString(fmt.Sprintf("%s    Expected: %s\n", indent, result.Expected))
-		sb.WriteString(fmt.Sprintf("%s    Actual:   %s\n", indent, result.Actual))
+		fmt.Fprintf(&sb, "%s  PCR[%d]: %s\n", indent, result.Index, status)
+		fmt.Fprintf(&sb, "%s    Expected: %s\n", indent, result.Expected)
+		fmt.Fprintf(&sb, "%s    Actual:   %s\n", indent, result.Actual)
 	}
 
 	return sb.String()

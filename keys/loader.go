@@ -36,6 +36,7 @@ package keys
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"encoding/hex"
@@ -103,6 +104,13 @@ func LoadAPIKeyFromFile(keyName string) (*api.TurnkeyAPIKey, error) {
 		return nil, fmt.Errorf("failed to decode private key hex: %w", err)
 	}
 
+	// Left-pad to 32 bytes for P-256 (hex decoding may produce fewer bytes if leading zeros are omitted)
+	if len(privateKeyBytes) < 32 {
+		padded := make([]byte, 32)
+		copy(padded[32-len(privateKeyBytes):], privateKeyBytes)
+		privateKeyBytes = padded
+	}
+
 	// Create ECDSA private key
 	ecdsaCurve := elliptic.P256()
 	privateKey := &ecdsa.PrivateKey{
@@ -112,8 +120,14 @@ func LoadAPIKeyFromFile(keyName string) (*api.TurnkeyAPIKey, error) {
 		D: new(big.Int).SetBytes(privateKeyBytes),
 	}
 
-	// Calculate public key point
-	privateKey.X, privateKey.Y = ecdsaCurve.ScalarBaseMult(privateKeyBytes)
+	// Calculate public key point using crypto/ecdh (non-deprecated API)
+	ecdhPrivKey, err := ecdh.P256().NewPrivateKey(privateKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ecdh private key: %w", err)
+	}
+	pubBytes := ecdhPrivKey.PublicKey().Bytes()
+	privateKey.X = new(big.Int).SetBytes(pubBytes[1:33])
+	privateKey.Y = new(big.Int).SetBytes(pubBytes[33:65])
 
 	return &api.TurnkeyAPIKey{
 		PublicKey:  publicKeyHex,

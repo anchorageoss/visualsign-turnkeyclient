@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
@@ -238,9 +239,9 @@ func (s *Service) extractPublicKey(publicKeyHex string) (*ecdsa.PublicKey, error
 		Y:     y,
 	}
 
-	// Verify the public key is on the curve
-	if !curve.IsOnCurve(pubKey.X, pubKey.Y) {
-		return nil, errors.New("public key is not on the P256 curve")
+	// Verify the public key is on the curve using crypto/ecdh (non-deprecated API)
+	if _, err := ecdh.P256().NewPublicKey(publicKeyForVerification); err != nil {
+		return nil, fmt.Errorf("public key is not on the P256 curve: %w", err)
 	}
 
 	return pubKey, nil
