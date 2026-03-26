@@ -80,6 +80,17 @@ The CI workflow runs on every push and pull request:
 - ✅ Build verification
 - 📊 Coverage reports uploaded to artifacts
 
+### Releasing
+
+Releases are automated via goreleaser. To create a new release:
+
+```bash
+git tag -a v1.2.3 -m "v1.2.3: Brief description"
+git push origin v1.2.3
+```
+
+Pushing a `v*` tag triggers the release workflow, which runs tests and publishes cross-platform binaries to GitHub Releases. Use `-rc.1`, `-beta.1` suffixes for pre-releases.
+
 ## Commands
 
 ### Parse Command

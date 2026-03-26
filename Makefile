@@ -5,6 +5,14 @@ PORT ?= :3000
 # Verbose test output
 VERBOSE ?= false
 
+# Version info injected at build time
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+DATE    ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+LDFLAGS := -X github.com/anchorageoss/visualsign-turnkeyclient/version.Version=$(VERSION) \
+           -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit=$(COMMIT) \
+           -X github.com/anchorageoss/visualsign-turnkeyclient/version.Date=$(DATE)
+
 help:
 	@echo "Available targets:"
 	@echo "  make test              	- Run all tests (excludes cmd package from coverage)"
@@ -64,7 +72,7 @@ test-coverage-serve: test
 	fi
 
 build: bin/
-	CGO_ENABLED=0 go build -o bin/visualsign-turnkeyclient .
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/visualsign-turnkeyclient .
 
 bin/:
 	mkdir -p bin

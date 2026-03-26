@@ -1,0 +1,47 @@
+version: 2
+
+project_name: visualsign-turnkeyclient
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: .
+    binary: visualsign-turnkeyclient
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/anchorageoss/visualsign-turnkeyclient/version.Version={{.Version}}
+      - -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit={{.Commit}}
+      - -X github.com/anchorageoss/visualsign-turnkeyclient/version.Date={{.Date}}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+release:
+  github:
+    owner: anchorageoss
+    name: visualsign-turnkeyclient
+  draft: false
+  prerelease: auto
