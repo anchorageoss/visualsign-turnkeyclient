@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anchorageoss/visualsign-turnkeyclient/version"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 )
@@ -81,6 +82,24 @@ func TestMainApp(t *testing.T) {
 		require.True(t, commandNames["attestation"])
 		require.False(t, commandNames["invalid-command"])
 	})
+}
+
+func TestVersionFlag(t *testing.T) {
+	var buf bytes.Buffer
+
+	app := &cli.Command{
+		Name:    "turnkey-client",
+		Usage:   "Turnkey Visualsign Client",
+		Version: version.String(),
+		Writer:  &buf,
+	}
+
+	err := app.Run(context.Background(), []string{"turnkey-client", "--version"})
+	require.NoError(t, err)
+
+	output := buf.String()
+	require.Contains(t, output, "dev")
+	require.Contains(t, output, "commit:")
 }
 
 // TestMainCommands verifies that all commands are properly registered
