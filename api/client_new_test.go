@@ -218,7 +218,8 @@ func TestCreateSignablePayload(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.Equal(t, "test-signable-payload", result.SignablePayload)
-		require.Empty(t, mockClient.lastRequest.Header.Get("X-Stamp"))
+		_, ok := mockClient.lastRequest.Header["X-Stamp"]
+		require.False(t, ok)
 	})
 
 	t.Run("response with attestations", func(t *testing.T) {
@@ -340,7 +341,8 @@ func TestGetBootAttestation(t *testing.T) {
 		result, err := nilKeyClient.GetBootAttestation(context.Background(), "test-key", "signer")
 		require.NoError(t, err)
 		require.Equal(t, "test-attestation-doc", result)
-		require.Empty(t, mockClient.lastRequest.Header.Get("X-Stamp"))
+		_, ok := mockClient.lastRequest.Header["X-Stamp"]
+		require.False(t, ok)
 	})
 
 	t.Run("network error", func(t *testing.T) {
