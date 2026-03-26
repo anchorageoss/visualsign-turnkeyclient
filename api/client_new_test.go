@@ -189,6 +189,23 @@ func TestCreateSignablePayload(t *testing.T) {
 		require.Contains(t, err.Error(), "API error occurred")
 	})
 
+	t.Run("nil APIKey returns error", func(t *testing.T) {
+		nilAPIKeyClient := &Client{
+			HostURI:    "https://api.turnkey.com",
+			HTTPClient: &mockHTTPClient{},
+		}
+
+		req := &CreateSignablePayloadRequest{
+			UnsignedPayload: "test-payload",
+			Chain:           "test-chain",
+		}
+
+		result, err := nilAPIKeyClient.CreateSignablePayload(context.Background(), req)
+		require.Error(t, err)
+		require.Nil(t, result)
+		require.Contains(t, err.Error(), "APIKey must be configured")
+	})
+
 	t.Run("nil private key skips stamp", func(t *testing.T) {
 		response := TurnkeyVisualSignResponse{}
 		response.Response.ParsedTransaction.Payload.SignablePayload = "test-signable-payload"
@@ -315,6 +332,18 @@ func TestGetBootAttestation(t *testing.T) {
 		result, err := client.GetBootAttestation(context.Background(), "test-key", "")
 		require.NoError(t, err)
 		require.Equal(t, "test-attestation-doc", result)
+	})
+
+	t.Run("nil APIKey returns error", func(t *testing.T) {
+		nilAPIKeyClient := &Client{
+			HostURI:    "https://api.turnkey.com",
+			HTTPClient: &mockHTTPClient{},
+		}
+
+		result, err := nilAPIKeyClient.GetBootAttestation(context.Background(), "test-key", "signer")
+		require.Error(t, err)
+		require.Empty(t, result)
+		require.Contains(t, err.Error(), "APIKey must be configured")
 	})
 
 	t.Run("nil private key skips stamp", func(t *testing.T) {
