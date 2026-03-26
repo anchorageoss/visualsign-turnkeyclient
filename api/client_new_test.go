@@ -19,11 +19,13 @@ import (
 // Mock implementations for testing
 
 type mockHTTPClient struct {
-	response *http.Response
-	err      error
+	response    *http.Response
+	err         error
+	lastRequest *http.Request
 }
 
 func (m *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	m.lastRequest = req
 	return m.response, m.err
 }
 
@@ -187,6 +189,38 @@ func TestCreateSignablePayload(t *testing.T) {
 		require.Contains(t, err.Error(), "API error occurred")
 	})
 
+	t.Run("nil private key skips stamp", func(t *testing.T) {
+		response := TurnkeyVisualSignResponse{}
+		response.Response.ParsedTransaction.Payload.SignablePayload = "test-signable-payload"
+
+		responseBody, _ := json.Marshal(response)
+		mockResp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(responseBody)),
+		}
+
+		mockClient := &mockHTTPClient{response: mockResp}
+		nilKeyClient := &Client{
+			HostURI:    "https://api.turnkey.com",
+			HTTPClient: mockClient,
+			APIKey: &TurnkeyAPIKey{
+				PublicKey:      "test-public-key",
+				OrganizationID: "test-org",
+			},
+		}
+
+		req := &CreateSignablePayloadRequest{
+			UnsignedPayload: "test-payload",
+			Chain:           "test-chain",
+		}
+
+		result, err := nilKeyClient.CreateSignablePayload(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Equal(t, "test-signable-payload", result.SignablePayload)
+		require.Empty(t, mockClient.lastRequest.Header.Get("X-Stamp"))
+	})
+
 	t.Run("response with attestations", func(t *testing.T) {
 		response := TurnkeyVisualSignResponse{
 			BootProof: &TurnkeyBootProof{
@@ -280,6 +314,33 @@ func TestGetBootAttestation(t *testing.T) {
 		result, err := client.GetBootAttestation(context.Background(), "test-key", "")
 		require.NoError(t, err)
 		require.Equal(t, "test-attestation-doc", result)
+	})
+
+	t.Run("nil private key skips stamp", func(t *testing.T) {
+		response := AttestationQueryResponse{
+			AttestationDocument: "test-attestation-doc",
+		}
+
+		responseBody, _ := json.Marshal(response)
+		mockResp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(responseBody)),
+		}
+
+		mockClient := &mockHTTPClient{response: mockResp}
+		nilKeyClient := &Client{
+			HostURI:    "https://api.turnkey.com",
+			HTTPClient: mockClient,
+			APIKey: &TurnkeyAPIKey{
+				PublicKey:      "test-public-key",
+				OrganizationID: "test-org",
+			},
+		}
+
+		result, err := nilKeyClient.GetBootAttestation(context.Background(), "test-key", "signer")
+		require.NoError(t, err)
+		require.Equal(t, "test-attestation-doc", result)
+		require.Empty(t, mockClient.lastRequest.Header.Get("X-Stamp"))
 	})
 
 	t.Run("network error", func(t *testing.T) {
