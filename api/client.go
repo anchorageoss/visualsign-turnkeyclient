@@ -56,6 +56,10 @@ type CreateSignablePayloadRequest struct {
 
 // CreateSignablePayload calls Turnkey's visualsign API to create a signable payload
 func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignablePayloadRequest) (*SignablePayloadResponse, error) {
+	if c.APIKey == nil {
+		return nil, fmt.Errorf("APIKey must be configured to create a signable payload")
+	}
+
 	// Create the visualsign request
 	reqBody := TurnkeyVisualSignRequest{
 		Request: struct {
@@ -173,6 +177,10 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 
 // GetBootAttestation retrieves boot attestation for a specific public key and enclave type
 func (c *Client) GetBootAttestation(ctx context.Context, publicKey, enclaveType string) (string, error) {
+	if c.APIKey == nil {
+		return "", fmt.Errorf("APIKey must be configured to get boot attestation")
+	}
+
 	if enclaveType == "" {
 		enclaveType = "signer"
 	}
@@ -235,9 +243,10 @@ func (c *Client) GetBootAttestation(ctx context.Context, publicKey, enclaveType 
 }
 
 // generateStamp creates an API key stamp for the request.
-// Returns empty string when no API key or private key is configured (local/unauthenticated environments).
+// Returns empty string when no private key is configured (local/unauthenticated environments).
+// Requires APIKey to be non-nil; callers must guard against nil APIKey before invoking.
 func (c *Client) generateStamp(requestBody []byte) (string, error) {
-	if c.APIKey == nil || c.APIKey.PrivateKey == nil {
+	if c.APIKey.PrivateKey == nil {
 		return "", nil
 	}
 
