@@ -317,6 +317,17 @@ func TestGenerateStampNilPrivateKey(t *testing.T) {
 	require.Empty(t, stamp)
 }
 
+// TestGenerateStampNilAPIKey tests that generateStamp returns empty string when APIKey is nil
+func TestGenerateStampNilAPIKey(t *testing.T) {
+	client := &Client{
+		HostURI: "https://api.turnkey.com",
+	}
+
+	stamp, err := client.generateStamp([]byte(`{"test": "data"}`))
+	require.NoError(t, err)
+	require.Empty(t, stamp)
+}
+
 // BenchmarkGenerateStamp benchmarks stamp generation performance
 func BenchmarkGenerateStamp(b *testing.B) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

@@ -60,6 +60,10 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		return nil, fmt.Errorf("APIKey must be configured to create a signable payload")
 	}
 
+	if req == nil {
+		return nil, fmt.Errorf("request must not be nil")
+	}
+
 	// Create the visualsign request
 	reqBody := TurnkeyVisualSignRequest{
 		Request: struct {
@@ -243,10 +247,9 @@ func (c *Client) GetBootAttestation(ctx context.Context, publicKey, enclaveType 
 }
 
 // generateStamp creates an API key stamp for the request.
-// Returns empty string when no private key is configured (local/unauthenticated environments).
-// Requires APIKey to be non-nil; callers must guard against nil APIKey before invoking.
+// Returns empty string when no API key or private key is configured (local/unauthenticated environments).
 func (c *Client) generateStamp(requestBody []byte) (string, error) {
-	if c.APIKey.PrivateKey == nil {
+	if c.APIKey == nil || c.APIKey.PrivateKey == nil {
 		return "", nil
 	}
 

@@ -206,6 +206,13 @@ func TestCreateSignablePayload(t *testing.T) {
 		require.Contains(t, err.Error(), "APIKey must be configured")
 	})
 
+	t.Run("nil request returns error", func(t *testing.T) {
+		result, err := client.CreateSignablePayload(context.Background(), nil)
+		require.Error(t, err)
+		require.Nil(t, result)
+		require.Contains(t, err.Error(), "request must not be nil")
+	})
+
 	t.Run("nil private key skips stamp", func(t *testing.T) {
 		response := TurnkeyVisualSignResponse{}
 		response.Response.ParsedTransaction.Payload.SignablePayload = "test-signable-payload"
