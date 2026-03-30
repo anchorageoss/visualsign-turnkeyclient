@@ -27,7 +27,7 @@ if [ "$BRANCH" = "main-" ] || [ "$BRANCH" = "master-" ]; then
 fi
 
 # Which main do we diff against?
-REMOTE=$(git remote -v | grep fetch | grep anchorageoss/visualsign-turnkeyclient | awk '{print $1}' | head -1)
+REMOTE=$(git remote -v | awk '/[[:space:]]\(fetch\)/ && /anchorageoss\/visualsign-turnkeyclient/ {print $1; exit}')
 if [ -z "$REMOTE" ]; then
   REMOTE="origin"
 fi

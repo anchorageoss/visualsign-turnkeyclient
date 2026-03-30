@@ -82,14 +82,15 @@ The CI workflow runs on every push and pull request:
 
 ### Releasing
 
-Releases are automated via goreleaser. To create a new release:
+Releases are automated via goreleaser and triggered on every push to `main`. Versions are computed automatically from git commit history using `scripts/auto-version.sh` (no manual tagging required).
 
-```bash
-git tag -a v1.2.3 -m "v1.2.3: Brief description"
-git push origin v1.2.3
-```
+The release workflow will:
+1. Compute the version from commit count (format: `0.<height>.0`)
+2. Skip if a tag for that version already exists
+3. Create and push the git tag
+4. Build and publish cross-platform binaries to GitHub Releases
 
-Pushing a `v*` tag triggers the release workflow, which runs tests and publishes cross-platform binaries to GitHub Releases. Use `-rc.1`, `-beta.1` suffixes for pre-releases.
+Releases can also be triggered manually via `workflow_dispatch` (with an optional dry-run mode).
 
 ## Commands
 
