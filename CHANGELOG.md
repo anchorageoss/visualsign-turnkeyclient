@@ -2,18 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Versions are computed automatically from git commit history via `scripts/auto-version.sh`.
 
 ## [Unreleased]
 
+### Changed
+- Replaced tag-based semver versioning with commit-count auto-versioning
+- Release workflow now triggers on push to `main` (auto-creates tags)
+- Removed `Date` from version output (now shows `Version (commit: Hash)`)
+
 ### Added
+- `scripts/auto-version.sh` for automatic version computation
 - Version information (`--version` flag) with build metadata
 - goreleaser configuration for cross-platform binary releases
-- GitHub Actions release workflow triggered on version tags
+- GitHub Actions release workflow with auto-tagging
 - CHANGELOG.md
 
-## [0.1.0]
+## Initial Development
 
 ### Added
 - Transaction parsing and attestation extraction (`parse` command)
