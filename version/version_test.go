@@ -5,23 +5,22 @@ import (
 )
 
 func TestStringDefaults(t *testing.T) {
-	want := "dev (commit: none, built: unknown)"
+	want := "dev (commit: none)"
 	if got := String(); got != want {
 		t.Errorf("String() = %q, want %q", got, want)
 	}
 }
 
 func TestStringCustomValues(t *testing.T) {
-	origVersion, origCommit, origDate := Version, Commit, Date
+	origVersion, origCommit := Version, Commit
 	t.Cleanup(func() {
-		Version, Commit, Date = origVersion, origCommit, origDate
+		Version, Commit = origVersion, origCommit
 	})
 
-	Version = "v1.2.3"
-	Commit = "abc1234"
-	Date = "2026-01-01T00:00:00Z"
+	Version = "0.56.0+main-abc123def456"
+	Commit = "abc123def456"
 
-	want := "v1.2.3 (commit: abc1234, built: 2026-01-01T00:00:00Z)"
+	want := "0.56.0+main-abc123def456 (commit: abc123def456)"
 	if got := String(); got != want {
 		t.Errorf("String() = %q, want %q", got, want)
 	}

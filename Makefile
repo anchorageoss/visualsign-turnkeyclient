@@ -6,12 +6,10 @@ PORT ?= :3000
 VERBOSE ?= false
 
 # Version info injected at build time
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
-DATE    ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+VERSION ?= $(shell scripts/auto-version.sh 2>/dev/null || echo "dev")
+COMMIT  ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo "none")
 LDFLAGS := -X github.com/anchorageoss/visualsign-turnkeyclient/version.Version=$(VERSION) \
-           -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit=$(COMMIT) \
-           -X github.com/anchorageoss/visualsign-turnkeyclient/version.Date=$(DATE)
+           -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit=$(COMMIT)
 
 help:
 	@echo "Available targets:"
