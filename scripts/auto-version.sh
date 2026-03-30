@@ -43,7 +43,7 @@ if [ "$MERGE_BASE" = "$(git rev-parse "$REMOTE/$DEFAULT_BRANCH")" ]; then
   # If the merge base is actually just the other branch (there's linear history since the other branch)
   # then maybe the other branch is just old and this is not the real merge base. We just need to pull
   echo "Fetching $REMOTE..." >&2
-  git fetch "$REMOTE" > /dev/null
+  git fetch "$REMOTE" > /dev/null 2>&1 || echo "Warning: fetch from $REMOTE failed, continuing with local ref" >&2
   MERGE_BASE=$(git merge-base "$REMOTE/$DEFAULT_BRANCH" HEAD)
 fi
 MERGE_HEIGHT=$(git rev-list --count "$MERGE_BASE")
