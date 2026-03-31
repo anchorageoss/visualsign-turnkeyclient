@@ -88,7 +88,7 @@ jobs:
         run: |
           VERSION_OUTPUT=$(./bin/visualsign-turnkeyclient --version)
           echo "$VERSION_OUTPUT"
-          if echo "$VERSION_OUTPUT" | grep -qE '(dev|none)'; then
+          if echo "$VERSION_OUTPUT" | grep -qE '^dev \(commit:|commit: none'; then
             echo "ERROR: Version output contains default values — ldflags injection may have failed"
             exit 1
           fi
