@@ -8,9 +8,9 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 ## [Unreleased]
 
 ### Changed
-- Replaced tag-based semver versioning with commit-count auto-versioning
-- Release workflow now triggers on push to `main` (auto-creates tags)
-- Removed `Date` from version output (now shows `Version (commit: Hash)`)
+- Use commit-count-based auto-versioning derived from git history
+- Release workflow triggers on push to `main` (auto-creates tags)
+- Version output shows `Version (commit: Hash)`; build date is intentionally not included
 
 ### Added
 - `scripts/auto-version.sh` for automatic version computation

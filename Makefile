@@ -8,7 +8,7 @@ VERBOSE ?= false
 # Version info injected at build time
 VERSION ?= $(shell scripts/auto-version.sh 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo "none")
-LDFLAGS := -X github.com/anchorageoss/visualsign-turnkeyclient/version.Version=$(VERSION) \
+LDFLAGS = -X github.com/anchorageoss/visualsign-turnkeyclient/version.Version=$(VERSION) \
            -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit=$(COMMIT)
 
 help:

@@ -84,8 +84,14 @@ jobs:
       - name: Build
         run: make build
 
-      - name: Verify version output
-        run: ./bin/visualsign-turnkeyclient --version
+      - name: Smoke test version command
+        run: |
+          VERSION_OUTPUT=$(./bin/visualsign-turnkeyclient --version)
+          echo "$VERSION_OUTPUT"
+          if echo "$VERSION_OUTPUT" | grep -qE '(dev|none)'; then
+            echo "ERROR: Version output contains default values — ldflags injection may have failed"
+            exit 1
+          fi
 
       - name: Upload binary
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
