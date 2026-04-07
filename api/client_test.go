@@ -302,6 +302,32 @@ func TestGenerateStampWithDifferentKeys(t *testing.T) {
 	require.Equal(t, "public-key-2", stampData2.PublicKey)
 }
 
+// TestGenerateStampNilPrivateKey tests that generateStamp returns empty string when PrivateKey is nil
+func TestGenerateStampNilPrivateKey(t *testing.T) {
+	client := &Client{
+		HostURI: "https://api.turnkey.com",
+		APIKey: &TurnkeyAPIKey{
+			PublicKey:      "test-public-key",
+			OrganizationID: "test-org",
+		},
+	}
+
+	stamp, err := client.generateStamp([]byte(`{"test": "data"}`))
+	require.NoError(t, err)
+	require.Empty(t, stamp)
+}
+
+// TestGenerateStampNilAPIKey tests that generateStamp returns empty string when APIKey is nil
+func TestGenerateStampNilAPIKey(t *testing.T) {
+	client := &Client{
+		HostURI: "https://api.turnkey.com",
+	}
+
+	stamp, err := client.generateStamp([]byte(`{"test": "data"}`))
+	require.NoError(t, err)
+	require.Empty(t, stamp)
+}
+
 // BenchmarkGenerateStamp benchmarks stamp generation performance
 func BenchmarkGenerateStamp(b *testing.B) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

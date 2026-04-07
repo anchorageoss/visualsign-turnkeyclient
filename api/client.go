@@ -56,6 +56,14 @@ type CreateSignablePayloadRequest struct {
 
 // CreateSignablePayload calls Turnkey's visualsign API to create a signable payload
 func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignablePayloadRequest) (*SignablePayloadResponse, error) {
+	if c.APIKey == nil {
+		return nil, fmt.Errorf("APIKey must be configured to create a signable payload")
+	}
+
+	if req == nil {
+		return nil, fmt.Errorf("request must not be nil")
+	}
+
 	// Create the visualsign request
 	reqBody := TurnkeyVisualSignRequest{
 		Request: struct {
@@ -89,7 +97,9 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate stamp: %w", err)
 	}
-	httpReq.Header.Set("X-Stamp", stamp)
+	if stamp != "" {
+		httpReq.Header.Set("X-Stamp", stamp)
+	}
 
 	// Send request
 	resp, err := c.HTTPClient.Do(httpReq)
@@ -171,6 +181,10 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 
 // GetBootAttestation retrieves boot attestation for a specific public key and enclave type
 func (c *Client) GetBootAttestation(ctx context.Context, publicKey, enclaveType string) (string, error) {
+	if c.APIKey == nil {
+		return "", fmt.Errorf("APIKey must be configured to get boot attestation")
+	}
+
 	if enclaveType == "" {
 		enclaveType = "signer"
 	}
@@ -203,7 +217,9 @@ func (c *Client) GetBootAttestation(ctx context.Context, publicKey, enclaveType 
 	if err != nil {
 		return "", fmt.Errorf("failed to generate stamp: %w", err)
 	}
-	httpReq.Header.Set("X-Stamp", stamp)
+	if stamp != "" {
+		httpReq.Header.Set("X-Stamp", stamp)
+	}
 
 	// Send request
 	resp, err := c.HTTPClient.Do(httpReq)
@@ -230,8 +246,13 @@ func (c *Client) GetBootAttestation(ctx context.Context, publicKey, enclaveType 
 	return attestationResp.AttestationDocument, nil
 }
 
-// generateStamp creates an API key stamp for the request
+// generateStamp creates an API key stamp for the request.
+// Returns empty string when no API key or private key is configured (local/unauthenticated environments).
 func (c *Client) generateStamp(requestBody []byte) (string, error) {
+	if c.APIKey == nil || c.APIKey.PrivateKey == nil {
+		return "", nil
+	}
+
 	// Sign the request body with the private key
 	signature, err := c.signWithAPIKey(requestBody)
 	if err != nil {
