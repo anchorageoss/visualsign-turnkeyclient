@@ -18,7 +18,8 @@ func reserializeManifest(m Manifest) ([]byte, error) {
 	return manifestBytes, nil
 }
 
-// DecodeManifestFromBase64 decodes a base64-encoded manifest envelope and returns the manifest and envelope bytes
+// DecodeManifestFromBase64 decodes a base64-encoded manifest envelope and returns the manifest and envelope bytes.
+// Tries v2 format first, falls back to v0 (legacy) format.
 func DecodeManifestFromBase64(manifestB64 string) (*Manifest, []byte, []byte, error) {
 	// Decode base64
 	envelopeBytes, err := base64.StdEncoding.DecodeString(manifestB64)
@@ -26,68 +27,96 @@ func DecodeManifestFromBase64(manifestB64 string) (*Manifest, []byte, []byte, er
 		return nil, nil, nil, fmt.Errorf("failed to decode base64: %w", err)
 	}
 
-	// Deserialize the envelope
+	// Try v2 envelope first
 	var env ManifestEnvelope
-	if err := borsh.Deserialize(&env, envelopeBytes); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to deserialize manifest envelope: %w", err)
+	if err := borsh.Deserialize(&env, envelopeBytes); err == nil {
+		manifestBytes, err := reserializeManifest(env.Manifest)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return &env.Manifest, manifestBytes, envelopeBytes, nil
 	}
 
-	// Re-encode just the Manifest struct to get its raw bytes
-	manifestBytes, err := reserializeManifest(env.Manifest)
+	// Fall back to v0 envelope
+	var envV0 ManifestEnvelopeV0
+	if err := borsh.Deserialize(&envV0, envelopeBytes); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to deserialize manifest envelope (tried v2 and v0): %w", err)
+	}
+	converted := envV0.ToManifestEnvelope()
+	manifestBytes, err := reserializeManifest(converted.Manifest)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	return &env.Manifest, manifestBytes, envelopeBytes, nil
+	return &converted.Manifest, manifestBytes, envelopeBytes, nil
 }
 
-// DecodeManifestFromFile decodes a manifest envelope from a binary file
+// DecodeManifestFromFile decodes a manifest envelope from a binary file.
+// Tries v2 formats first, falls back to v0 (legacy) formats.
 func DecodeManifestFromFile(filePath string) (*Manifest, []byte, []byte, error) {
-	// Read file
 	envelopeBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Try to deserialize as envelope first
+	// Try v2 envelope
 	var env ManifestEnvelope
-	if err := borsh.Deserialize(&env, envelopeBytes); err != nil {
-		// If envelope deserialization fails, try direct manifest deserialization
-		var manifest Manifest
-		if err := borsh.Deserialize(&manifest, envelopeBytes); err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to deserialize as envelope or manifest: %w", err)
+	if err := borsh.Deserialize(&env, envelopeBytes); err == nil {
+		manifestBytes, err := reserializeManifest(env.Manifest)
+		if err != nil {
+			return nil, nil, nil, err
 		}
-		// If the file contains raw manifest bytes, use them directly for hashing
+		return &env.Manifest, manifestBytes, envelopeBytes, nil
+	}
+
+	// Try v0 envelope
+	var envV0 ManifestEnvelopeV0
+	if err := borsh.Deserialize(&envV0, envelopeBytes); err == nil {
+		converted := envV0.ToManifestEnvelope()
+		manifestBytes, err := reserializeManifest(converted.Manifest)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return &converted.Manifest, manifestBytes, envelopeBytes, nil
+	}
+
+	// Try v2 raw manifest
+	var manifest Manifest
+	if err := borsh.Deserialize(&manifest, envelopeBytes); err == nil {
 		return &manifest, envelopeBytes, envelopeBytes, nil
 	}
 
-	// If we successfully parsed as envelope, re-serialize just the manifest portion
-	manifestBytes, err := reserializeManifest(env.Manifest)
-	if err != nil {
-		return nil, nil, nil, err
+	// Try v0 raw manifest
+	var v0 ManifestV0
+	if err := borsh.Deserialize(&v0, envelopeBytes); err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to deserialize as envelope or manifest (tried v2 and v0): %w", err)
 	}
-
-	return &env.Manifest, manifestBytes, envelopeBytes, nil
+	m := v0.ToManifest()
+	return &m, envelopeBytes, envelopeBytes, nil
 }
 
-// DecodeRawManifestFromFile decodes a raw manifest (not envelope) from a binary file
+// DecodeRawManifestFromFile decodes a raw manifest (not envelope) from a binary file.
+// Tries v2 format first, falls back to v0 (legacy) format.
 func DecodeRawManifestFromFile(filePath string) (*Manifest, []byte, error) {
-	// Read file
 	manifestBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Deserialize as manifest directly
 	var manifest Manifest
-	if err := borsh.Deserialize(&manifest, manifestBytes); err != nil {
-		return nil, nil, fmt.Errorf("failed to deserialize raw manifest: %w", err)
+	if err := borsh.Deserialize(&manifest, manifestBytes); err == nil {
+		return &manifest, manifestBytes, nil
 	}
 
-	return &manifest, manifestBytes, nil
+	var v0 ManifestV0
+	if err := borsh.Deserialize(&v0, manifestBytes); err != nil {
+		return nil, nil, fmt.Errorf("failed to deserialize raw manifest (tried v2 and v0): %w", err)
+	}
+	m := v0.ToManifest()
+	return &m, manifestBytes, nil
 }
 
-// DecodeRawManifestFromBase64 decodes a raw manifest (not envelope) from base64
+// DecodeRawManifestFromBase64 decodes a raw manifest (not envelope) from base64.
+// Tries v2 format first, falls back to v0 (legacy) format.
 func DecodeRawManifestFromBase64(manifestB64 string) (*Manifest, []byte, error) {
 	// Decode base64
 	manifestBytes, err := base64.StdEncoding.DecodeString(manifestB64)
@@ -95,39 +124,52 @@ func DecodeRawManifestFromBase64(manifestB64 string) (*Manifest, []byte, error) 
 		return nil, nil, fmt.Errorf("failed to decode base64: %w", err)
 	}
 
-	// Deserialize as manifest directly
+	// Try v2 format first
 	var manifest Manifest
-	if err := borsh.Deserialize(&manifest, manifestBytes); err != nil {
-		return nil, nil, fmt.Errorf("failed to deserialize raw manifest: %w", err)
+	if err := borsh.Deserialize(&manifest, manifestBytes); err == nil {
+		return &manifest, manifestBytes, nil
 	}
 
-	return &manifest, manifestBytes, nil
+	// Fall back to v0 (legacy) format
+	var v0 ManifestV0
+	if err := borsh.Deserialize(&v0, manifestBytes); err != nil {
+		return nil, nil, fmt.Errorf("failed to deserialize raw manifest (tried v2 and v0): %w", err)
+	}
+	m := v0.ToManifest()
+	return &m, manifestBytes, nil
 }
 
-// DecodeManifestEnvelopeFromFile decodes a manifest envelope from a binary file
+// DecodeManifestEnvelopeFromFile decodes a manifest envelope from a binary file.
+// Tries v2 format first, falls back to v0 (legacy) format.
 func DecodeManifestEnvelopeFromFile(filePath string) (*ManifestEnvelope, *Manifest, []byte, []byte, error) {
-	// Read file
 	envelopeBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Deserialize as envelope (strict - no fallback)
 	var env ManifestEnvelope
-	if err := borsh.Deserialize(&env, envelopeBytes); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to deserialize manifest envelope: %w", err)
+	if err := borsh.Deserialize(&env, envelopeBytes); err == nil {
+		manifestBytes, err := reserializeManifest(env.Manifest)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		return &env, &env.Manifest, manifestBytes, envelopeBytes, nil
 	}
 
-	// Re-serialize just the manifest portion for hashing
-	manifestBytes, err := reserializeManifest(env.Manifest)
+	var envV0 ManifestEnvelopeV0
+	if err := borsh.Deserialize(&envV0, envelopeBytes); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to deserialize manifest envelope (tried v2 and v0): %w", err)
+	}
+	converted := envV0.ToManifestEnvelope()
+	manifestBytes, err := reserializeManifest(converted.Manifest)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-
-	return &env, &env.Manifest, manifestBytes, envelopeBytes, nil
+	return &converted, &converted.Manifest, manifestBytes, envelopeBytes, nil
 }
 
-// DecodeManifestEnvelopeFromBase64 decodes a manifest envelope from base64
+// DecodeManifestEnvelopeFromBase64 decodes a manifest envelope from base64.
+// Tries v2 format first, falls back to v0 (legacy) format.
 func DecodeManifestEnvelopeFromBase64(manifestB64 string) (*ManifestEnvelope, *Manifest, []byte, []byte, error) {
 	// Decode base64
 	envelopeBytes, err := base64.StdEncoding.DecodeString(manifestB64)
@@ -135,17 +177,25 @@ func DecodeManifestEnvelopeFromBase64(manifestB64 string) (*ManifestEnvelope, *M
 		return nil, nil, nil, nil, fmt.Errorf("failed to decode base64: %w", err)
 	}
 
-	// Deserialize as envelope (strict - no fallback)
+	// Try v2 format first
 	var env ManifestEnvelope
-	if err := borsh.Deserialize(&env, envelopeBytes); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to deserialize manifest envelope: %w", err)
+	if err := borsh.Deserialize(&env, envelopeBytes); err == nil {
+		manifestBytes, err := reserializeManifest(env.Manifest)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		return &env, &env.Manifest, manifestBytes, envelopeBytes, nil
 	}
 
-	// Re-serialize just the manifest portion for hashing
-	manifestBytes, err := reserializeManifest(env.Manifest)
+	// Fall back to v0 (legacy) format
+	var envV0 ManifestEnvelopeV0
+	if err := borsh.Deserialize(&envV0, envelopeBytes); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to deserialize manifest envelope (tried v2 and v0): %w", err)
+	}
+	converted := envV0.ToManifestEnvelope()
+	manifestBytes, err := reserializeManifest(converted.Manifest)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-
-	return &env, &env.Manifest, manifestBytes, envelopeBytes, nil
+	return &converted, &converted.Manifest, manifestBytes, envelopeBytes, nil
 }

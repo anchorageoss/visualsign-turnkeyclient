@@ -25,10 +25,11 @@ type KeyProvider interface {
 
 // Client implements the Turnkey API client
 type Client struct {
-	HostURI        string
-	HTTPClient     HTTPClient
-	APIKey         *TurnkeyAPIKey
-	APIKeyProvider KeyProvider
+	HostURI              string
+	HTTPClient           HTTPClient
+	APIKey               *TurnkeyAPIKey
+	APIKeyProvider       KeyProvider
+	VisualSignAPIVersion string
 }
 
 // NewClient creates a new Turnkey API client with key provider
@@ -41,10 +42,11 @@ func NewClient(hostURI string, httpClient HTTPClient, organizationID string, pro
 	apiKey.OrganizationID = organizationID
 
 	return &Client{
-		HostURI:        hostURI,
-		HTTPClient:     httpClient,
-		APIKey:         apiKey,
-		APIKeyProvider: provider,
+		HostURI:              hostURI,
+		HTTPClient:           httpClient,
+		APIKey:               apiKey,
+		APIKeyProvider:       provider,
+		VisualSignAPIVersion: "v2",
 	}, nil
 }
 
@@ -83,7 +85,7 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	}
 
 	// Create and stamp the request
-	url := fmt.Sprintf("%s/visualsign/api/v1/parse", c.HostURI)
+	url := fmt.Sprintf("%s/visualsign/api/%s/parse", c.HostURI, c.VisualSignAPIVersion)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
@@ -169,6 +171,9 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 
 	return &SignablePayloadResponse{
 		SignablePayload:                  signablePayloadString,
+		ParsedPayload:                    turnkeyResp.Response.ParsedTransaction.Payload.ParsedPayload,
+		InputPayloadDigest:               turnkeyResp.Response.ParsedTransaction.Payload.InputPayloadDigest,
+		MetadataDigest:                   turnkeyResp.Response.ParsedTransaction.Payload.MetadataDigest,
 		TurnkeySerializedSignablePayload: signablePayloadString,
 		Attestations:                     attestations,
 		QosManifestB64:                   qosManifestB64,

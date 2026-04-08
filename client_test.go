@@ -70,7 +70,10 @@ func TestCreateSignablePayloadSuccess(t *testing.T) {
 			Response: struct {
 				ParsedTransaction struct {
 					Payload struct {
-						SignablePayload string `json:"signablePayload"`
+						SignablePayload    string `json:"signablePayload"`
+						ParsedPayload      string `json:"parsedPayload,omitempty"`
+						InputPayloadDigest string `json:"inputPayloadDigest,omitempty"`
+						MetadataDigest     string `json:"metadataDigest,omitempty"`
 					} `json:"payload"`
 					Signature *api.TurnkeySignature `json:"signature,omitempty"`
 				} `json:"parsedTransaction"`

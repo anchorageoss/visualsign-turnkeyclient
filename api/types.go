@@ -60,7 +60,10 @@ type TurnkeyVisualSignResponse struct {
 	Response  struct {
 		ParsedTransaction struct {
 			Payload struct {
-				SignablePayload string `json:"signablePayload"`
+				SignablePayload    string `json:"signablePayload"`
+				ParsedPayload      string `json:"parsedPayload,omitempty"`      // v2
+				InputPayloadDigest string `json:"inputPayloadDigest,omitempty"` // v2
+				MetadataDigest     string `json:"metadataDigest,omitempty"`     // v2
 			} `json:"payload"`
 			Signature *TurnkeySignature `json:"signature,omitempty"`
 		} `json:"parsedTransaction"`
@@ -111,6 +114,9 @@ const (
 // SignablePayloadResponse represents the response from CreateSignablePayload
 type SignablePayloadResponse struct {
 	SignablePayload                  string                     `json:"signablePayload"`
+	ParsedPayload                    string                     `json:"parsedPayload,omitempty"`      // v2
+	InputPayloadDigest               string                     `json:"inputPayloadDigest,omitempty"` // v2
+	MetadataDigest                   string                     `json:"metadataDigest,omitempty"`     // v2
 	TurnkeySerializedSignablePayload string                     `json:"turnkeySerializedSignablePayload"`
 	Attestations                     map[AttestationType]string `json:"attestations"`
 	QosManifestB64                   string                     `json:"qosManifestB64,omitempty"`

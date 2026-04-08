@@ -65,6 +65,11 @@ func VerifyCommand() *cli.Command {
 				Name:  "pcrs",
 				Usage: "Expected PCR values in format: 0:<hex>,1:<hex>,... (e.g., 0:abc123,1:def456)",
 			},
+			&cli.StringFlag{
+				Name:  "api-version",
+				Usage: "VisualSign API version (v1 or v2)",
+				Value: "v2",
+			},
 		},
 		Action: runVerifyCommand,
 	}
@@ -95,6 +100,9 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 	apiClient, err := api.NewClient(hostURI, httpClient, organizationID, keyProvider)
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
+	}
+	if apiVersion := cmd.String("api-version"); apiVersion != "" {
+		apiClient.VisualSignAPIVersion = apiVersion
 	}
 
 	// Create attestation verifier

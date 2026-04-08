@@ -113,6 +113,10 @@ func (f *Formatter) FormatManifest(m *manifest.Manifest) string {
 	fmt.Fprintf(&sb, "  Hash: %s\n", hex.EncodeToString(m.Pivot.Hash[:]))
 	fmt.Fprintf(&sb, "  Restart: %s\n", m.Pivot.Restart)
 	fmt.Fprintf(&sb, "  Args: %v\n", m.Pivot.Args)
+	if len(m.Pivot.BridgeConfig) > 0 {
+		fmt.Fprintf(&sb, "  BridgeConfig: %d entries\n", len(m.Pivot.BridgeConfig))
+	}
+	fmt.Fprintf(&sb, "  DebugMode: %v\n", m.Pivot.DebugMode)
 
 	fmt.Fprintf(&sb, "\nManifest Set (threshold: %d):\n", m.ManifestSet.Threshold)
 	for i, member := range m.ManifestSet.Members {
@@ -252,9 +256,11 @@ func (f *Formatter) FormatManifestJSON(m *manifest.Manifest) map[string]interfac
 			"quorumKey": hex.EncodeToString(m.Namespace.QuorumKey),
 		},
 		"pivot": map[string]interface{}{
-			"hash":    hex.EncodeToString(m.Pivot.Hash[:]),
-			"restart": m.Pivot.Restart,
-			"args":    m.Pivot.Args,
+			"hash":         hex.EncodeToString(m.Pivot.Hash[:]),
+			"restart":      m.Pivot.Restart,
+			"args":         m.Pivot.Args,
+			"bridgeConfig": m.Pivot.BridgeConfig,
+			"debugMode":    m.Pivot.DebugMode,
 		},
 		"manifestSet": map[string]interface{}{
 			"threshold": m.ManifestSet.Threshold,
