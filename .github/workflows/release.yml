@@ -10,9 +10,6 @@ on:
         required: false
         default: 'false'
 
-permissions:
-  contents: write
-
 concurrency:
   group: release
   cancel-in-progress: false
@@ -21,6 +18,8 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -44,8 +43,10 @@ jobs:
             exit 1
           fi
           TAG="v${SEMVER}"
+          COMMIT_HASH=$(git rev-parse --short=12 HEAD)
           echo "full_version=$FULL_VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
           echo "Version: $FULL_VERSION"
           echo "Tag: $TAG"
 
@@ -54,6 +55,7 @@ jobs:
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
+          git fetch --tags origin
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "Tag $TAG already exists, skipping release"
@@ -62,7 +64,6 @@ jobs:
           fi
 
       - name: Run tests
-        if: steps.check_tag.outputs.exists == 'false'
         run: make test
 
       - name: Create tag
@@ -71,7 +72,24 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           git tag "$TAG"
-          git push origin "$TAG"
+          git push origin "$TAG" 2>&1 || {
+            # If push fails, check if tag was created by a concurrent run
+            git fetch --tags origin
+            if git rev-parse "$TAG" >/dev/null 2>&1; then
+              echo "Tag $TAG was already pushed by a concurrent run, skipping."
+            else
+              echo "ERROR: Failed to push tag $TAG"
+              exit 1
+            fi
+          }
+
+      - name: Dry run summary
+        if: github.event.inputs.dry_run == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          FULL_VERSION: ${{ steps.version.outputs.full_version }}
+        run: |
+          echo "DRY RUN: would have created tag $TAG (version: $FULL_VERSION)"
 
       - name: Run goreleaser
         if: steps.check_tag.outputs.exists == 'false' && github.event.inputs.dry_run != 'true'
@@ -83,3 +101,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.tag }}
+          COMMIT_HASH: ${{ steps.version.outputs.commit_hash }}

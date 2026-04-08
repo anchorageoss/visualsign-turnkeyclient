@@ -14,7 +14,7 @@ builds:
     ldflags:
       - -s -w
       - -X github.com/anchorageoss/visualsign-turnkeyclient/version.Version={{.Version}}
-      - -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit={{.Commit}}
+      - -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit={{ .Env.COMMIT_HASH }}
     goos:
       - linux
       - darwin

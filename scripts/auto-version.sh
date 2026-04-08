@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
-set -eo pipefail
+set -euo pipefail
 
 # Note that the - is included in GIT_BRANCH and BRANCH so we can omit it in case of not being on a branch
-GIT_BRANCH="${GITHUB_REF_NAME}-"
+GIT_BRANCH="${GITHUB_REF_NAME:-}-"
 if [ "$GIT_BRANCH" = "-" ]; then
   if git symbolic-ref --short HEAD > /dev/null 2>&1; then
     GIT_BRANCH="$(git symbolic-ref --short HEAD)-"
   else
     GIT_BRANCH=
   fi
-else
-  # remove the : prefix if present
-  GIT_BRANCH="${GIT_BRANCH#*:}"
 fi
 
 SHORT_HASH=$(git rev-parse --short=12 HEAD)
@@ -40,10 +37,13 @@ fi
 
 MERGE_BASE=$(git merge-base "$REMOTE/$DEFAULT_BRANCH" HEAD)
 if [ "$MERGE_BASE" = "$(git rev-parse "$REMOTE/$DEFAULT_BRANCH")" ]; then
-  # If the merge base is actually just the other branch (there's linear history since the other branch)
-  # then maybe the other branch is just old and this is not the real merge base. We just need to pull
+  # Local remote-tracking ref may be stale — fetch to get the real merge base
   echo "Fetching $REMOTE..." >&2
-  git fetch "$REMOTE" > /dev/null 2>&1 || echo "Warning: fetch from $REMOTE failed, continuing with local ref" >&2
+  if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    git fetch "$REMOTE" >&2
+  else
+    git fetch "$REMOTE" > /dev/null 2>&1 || echo "Warning: fetch from $REMOTE failed, continuing with local ref" >&2
+  fi
   MERGE_BASE=$(git merge-base "$REMOTE/$DEFAULT_BRANCH" HEAD)
 fi
 MERGE_HEIGHT=$(git rev-list --count "$MERGE_BASE")

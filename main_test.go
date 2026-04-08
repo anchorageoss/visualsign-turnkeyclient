@@ -98,8 +98,7 @@ func TestVersionFlag(t *testing.T) {
 	require.NoError(t, err)
 
 	output := buf.String()
-	require.Contains(t, output, "dev")
-	require.Contains(t, output, "commit:")
+	require.Regexp(t, `\S+ \(commit: \S+\)`, output)
 }
 
 // TestMainCommands verifies that all commands are properly registered

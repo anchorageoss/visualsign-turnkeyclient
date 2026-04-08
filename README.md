@@ -85,7 +85,7 @@ The CI workflow runs on every push and pull request:
 Releases are automated via goreleaser and triggered on every push to `main`. Versions are computed automatically from git commit history using `scripts/auto-version.sh` (no manual tagging required).
 
 The release workflow will:
-1. Compute the version from commit count (format: `0.<height>.0`)
+1. Compute the version from commit count (tag: `v0.<height>.0`, binary: `0.<height>.0+main-<hash>`)
 2. Skip if a tag for that version already exists
 3. Create and push the git tag
 4. Build and publish cross-platform binaries to GitHub Releases
@@ -624,7 +624,7 @@ make test
 make test-coverage
 
 # Run tests and serve coverage interactively
-make test-cover
+make test-coverage-serve
 ```
 
 ### Building
