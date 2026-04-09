@@ -162,6 +162,16 @@ type ManifestEnvelope struct {
 	ShareSetApprovals    []Approval `borsh:"share_set_approvals"`
 }
 
+// ManifestVersion indicates which Borsh layout to use for deserialization.
+type ManifestVersion int
+
+const (
+	// V0 is the legacy layout (v1 API): PivotConfig has hash, restart, args only.
+	V0 ManifestVersion = iota
+	// V2 is the current layout (v2 API): PivotConfig has hash, restart, bridge_config, debug_mode, args.
+	V2
+)
+
 // --- V0 types for backward compatibility with v1 API ---
 
 // PivotConfigV0 is the legacy pivot config: hash, restart, args (no bridge_config or debug_mode)

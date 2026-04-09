@@ -20,7 +20,7 @@ func TestDecodeRawManifestCommand(t *testing.T) {
 
 	require.NotNil(t, cmd)
 	require.Equal(t, "raw", cmd.Name)
-	require.Len(t, cmd.Flags, 3)
+	require.Len(t, cmd.Flags, 4)
 
 	// Verify flags
 	var hasFile, hasBase64, hasJSON bool
@@ -52,7 +52,7 @@ func TestDecodeManifestEnvelopeCommand(t *testing.T) {
 	require.Equal(t, "envelope", cmd.Name)
 
 	// Check flags exist
-	require.Len(t, cmd.Flags, 3)
+	require.Len(t, cmd.Flags, 4)
 }
 
 func TestDecodeRawManifestFlags(t *testing.T) {
@@ -60,5 +60,5 @@ func TestDecodeRawManifestFlags(t *testing.T) {
 
 	require.NotNil(t, cmd)
 	require.Equal(t, "raw", cmd.Name)
-	require.Len(t, cmd.Flags, 3) // --file, --base64, --json
+	require.Len(t, cmd.Flags, 4) // --file, --base64, --json
 }

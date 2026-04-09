@@ -282,13 +282,12 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 	var manifestBytes []byte
 	var err error
 
+	mv := response.ManifestVersion
 	if response.QosManifestEnvelopeB64 != "" {
-		// Try envelope first (with approvals/signatures)
-		_, decodedManifest, manifestBytes, _, err = manifest.DecodeManifestEnvelopeFromBase64(response.QosManifestEnvelopeB64)
+		_, decodedManifest, manifestBytes, _, err = manifest.DecodeManifestEnvelopeFromBase64(response.QosManifestEnvelopeB64, mv)
 	}
 	if err != nil || decodedManifest == nil {
-		// Fall back to raw manifest if envelope fails
-		decodedManifest, manifestBytes, err = manifest.DecodeRawManifestFromBase64(response.QosManifestB64)
+		decodedManifest, manifestBytes, err = manifest.DecodeRawManifestFromBase64(response.QosManifestB64, mv)
 	}
 	if err != nil {
 		// Store what we know for debugging, even if parsing failed

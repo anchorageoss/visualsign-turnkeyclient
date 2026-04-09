@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/crypto"
+	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 )
 
 // HTTPClient interface for dependency injection
@@ -169,12 +170,19 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		deploymentLabel = turnkeyResp.BootProof.DeploymentLabel
 	}
 
+	// Map API version string to manifest version
+	mv := manifest.V2
+	if c.VisualSignAPIVersion == "v1" {
+		mv = manifest.V0
+	}
+
 	return &SignablePayloadResponse{
 		SignablePayload:                  signablePayloadString,
 		ParsedPayload:                    turnkeyResp.Response.ParsedTransaction.Payload.ParsedPayload,
 		InputPayloadDigest:               turnkeyResp.Response.ParsedTransaction.Payload.InputPayloadDigest,
 		MetadataDigest:                   turnkeyResp.Response.ParsedTransaction.Payload.MetadataDigest,
 		TurnkeySerializedSignablePayload: signablePayloadString,
+		ManifestVersion:                  mv,
 		Attestations:                     attestations,
 		QosManifestB64:                   qosManifestB64,
 		QosManifestEnvelopeB64:           qosManifestEnvelopeB64,

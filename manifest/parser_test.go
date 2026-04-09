@@ -56,21 +56,21 @@ func TestReserializeManifest(t *testing.T) {
 
 func TestDecodeManifestFromBase64(t *testing.T) {
 	t.Run("invalid base64", func(t *testing.T) {
-		_, _, _, err := DecodeManifestFromBase64("not-valid-base64!")
+		_, _, _, err := DecodeManifestFromBase64("not-valid-base64!", V2)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to decode base64")
 	})
 
 	t.Run("empty base64", func(t *testing.T) {
-		_, _, _, err := DecodeManifestFromBase64("")
+		_, _, _, err := DecodeManifestFromBase64("", V2)
 		assert.Error(t, err)
 	})
 
 	t.Run("invalid borsh data", func(t *testing.T) {
 		invalidB64 := base64.StdEncoding.EncodeToString([]byte{0xFF, 0xFF})
-		_, _, _, err := DecodeManifestFromBase64(invalidB64)
+		_, _, _, err := DecodeManifestFromBase64(invalidB64, V2)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to deserialize manifest envelope")
+		assert.Contains(t, err.Error(), "failed to deserialize v2 manifest envelope")
 	})
 }
 
@@ -83,7 +83,7 @@ func TestDecodeManifestFromFile(t *testing.T) {
 			t.Skip("testdata/manifest.bin not found")
 		}
 
-		manifest, manifestBytes, envelopeBytes, err := DecodeManifestFromFile(manifestPath)
+		manifest, manifestBytes, envelopeBytes, err := DecodeManifestFromFile(manifestPath, V2)
 		assert.NoError(t, err)
 		assert.NotNil(t, manifest)
 		assert.NotEmpty(t, manifestBytes)
@@ -91,7 +91,7 @@ func TestDecodeManifestFromFile(t *testing.T) {
 	})
 
 	t.Run("non-existent file", func(t *testing.T) {
-		_, _, _, err := DecodeManifestFromFile("does-not-exist.bin")
+		_, _, _, err := DecodeManifestFromFile("does-not-exist.bin", V2)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read file")
 	})
@@ -99,7 +99,7 @@ func TestDecodeManifestFromFile(t *testing.T) {
 
 func TestDecodeRawManifestFromFile(t *testing.T) {
 	t.Run("non-existent file", func(t *testing.T) {
-		_, _, err := DecodeRawManifestFromFile("does-not-exist.bin")
+		_, _, err := DecodeRawManifestFromFile("does-not-exist.bin", V2)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read file")
 	})
@@ -110,35 +110,35 @@ func TestDecodeRawManifestFromFile(t *testing.T) {
 		err := os.WriteFile(invalidPath, []byte{0xFF}, 0644)
 		assert.NoError(t, err)
 
-		_, _, err = DecodeRawManifestFromFile(invalidPath)
+		_, _, err = DecodeRawManifestFromFile(invalidPath, V2)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to deserialize raw manifest")
+		assert.Contains(t, err.Error(), "failed to deserialize v2 raw manifest")
 	})
 }
 
 func TestDecodeRawManifestFromBase64(t *testing.T) {
 	t.Run("invalid base64", func(t *testing.T) {
-		_, _, err := DecodeRawManifestFromBase64("!@#$%")
+		_, _, err := DecodeRawManifestFromBase64("!@#$%", V2)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to decode base64")
 	})
 
 	t.Run("invalid borsh", func(t *testing.T) {
 		invalidB64 := base64.StdEncoding.EncodeToString([]byte{0xFF})
-		_, _, err := DecodeRawManifestFromBase64(invalidB64)
+		_, _, err := DecodeRawManifestFromBase64(invalidB64, V2)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to deserialize raw manifest")
+		assert.Contains(t, err.Error(), "failed to deserialize v2 raw manifest")
 	})
 
 	t.Run("empty base64", func(t *testing.T) {
-		_, _, err := DecodeRawManifestFromBase64("")
+		_, _, err := DecodeRawManifestFromBase64("", V2)
 		assert.Error(t, err)
 	})
 }
 
 func TestDecodeManifestEnvelopeFromFile(t *testing.T) {
 	t.Run("non-existent file", func(t *testing.T) {
-		_, _, _, _, err := DecodeManifestEnvelopeFromFile("does-not-exist.bin")
+		_, _, _, _, err := DecodeManifestEnvelopeFromFile("does-not-exist.bin", V2)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read file")
 	})
@@ -149,49 +149,45 @@ func TestDecodeManifestEnvelopeFromFile(t *testing.T) {
 		err := os.WriteFile(invalidPath, []byte{0xFF, 0xFE}, 0644)
 		assert.NoError(t, err)
 
-		_, _, _, _, err = DecodeManifestEnvelopeFromFile(invalidPath)
+		_, _, _, _, err = DecodeManifestEnvelopeFromFile(invalidPath, V2)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to deserialize manifest envelope")
+		assert.Contains(t, err.Error(), "failed to deserialize v2 manifest envelope")
 	})
 }
 
 func TestDecodeManifestEnvelopeFromBase64(t *testing.T) {
 	t.Run("invalid base64", func(t *testing.T) {
-		_, _, _, _, err := DecodeManifestEnvelopeFromBase64("!!!invalid!!!")
+		_, _, _, _, err := DecodeManifestEnvelopeFromBase64("!!!invalid!!!", V2)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to decode base64")
 	})
 
 	t.Run("invalid envelope data", func(t *testing.T) {
 		invalidB64 := base64.StdEncoding.EncodeToString([]byte{0xFF, 0xFE})
-		_, _, _, _, err := DecodeManifestEnvelopeFromBase64(invalidB64)
+		_, _, _, _, err := DecodeManifestEnvelopeFromBase64(invalidB64, V2)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to deserialize manifest envelope")
+		assert.Contains(t, err.Error(), "failed to deserialize v2 manifest envelope")
 	})
 
 	t.Run("empty base64", func(t *testing.T) {
-		_, _, _, _, err := DecodeManifestEnvelopeFromBase64("")
+		_, _, _, _, err := DecodeManifestEnvelopeFromBase64("", V2)
 		assert.Error(t, err)
 	})
 }
 
-// Test with actual embedded testdata
+// Test with actual embedded testdata (v2 manifest)
 func TestDecodeActualManifest(t *testing.T) {
-	// Use embedded manifest data from central testdata package
 	manifestBytes := testdata.ManifestBin
 	manifestB64 := base64.StdEncoding.EncodeToString(manifestBytes)
 
-	// This should work with either raw manifest or envelope
-	manifest, decodedBytes, err := DecodeRawManifestFromBase64(manifestB64)
+	manifest, decodedBytes, err := DecodeRawManifestFromBase64(manifestB64, V2)
 	assert.NoError(t, err)
 	assert.NotNil(t, manifest)
 	assert.NotEmpty(t, decodedBytes)
 
-	// Test hash computation
 	hash := ComputeHash(manifestBytes)
-	assert.Len(t, hash, 64) // SHA256 produces 64 hex chars
+	assert.Len(t, hash, 64)
 
-	// Verify reserialized hash matches original
 	reserializedHash := ComputeHash(decodedBytes)
 	assert.Equal(t, hash, reserializedHash, "reserialized manifest should have same hash")
 }
@@ -199,7 +195,6 @@ func TestDecodeActualManifest(t *testing.T) {
 // TestDecodeManifestSuccess tests the happy path with synthetic data
 func TestDecodeManifestSuccess(t *testing.T) {
 	t.Run("decode and reserialize manifest envelope", func(t *testing.T) {
-		// Create a valid manifest
 		manifest := Manifest{
 			Namespace: Namespace{
 				Name:  "test-namespace",
@@ -209,68 +204,46 @@ func TestDecodeManifestSuccess(t *testing.T) {
 				Restart: RestartPolicyAlways,
 				Args:    []string{"arg1", "arg2"},
 			},
-			ManifestSet: ManifestSet{
-				Threshold: 2,
-			},
-			ShareSet: ShareSet{
-				Threshold: 3,
-			},
-			Enclave: NitroConfig{
-				QosCommit: "abc123",
-			},
-			PatchSet: PatchSet{
-				Threshold: 1,
-			},
+			ManifestSet: ManifestSet{Threshold: 2},
+			ShareSet:    ShareSet{Threshold: 3},
+			Enclave:     NitroConfig{QosCommit: "abc123"},
+			PatchSet:    PatchSet{Threshold: 1},
 		}
 
-		// Wrap in envelope
 		envelope := ManifestEnvelope{
 			Manifest:             manifest,
 			ManifestSetApprovals: []Approval{},
 			ShareSetApprovals:    []Approval{},
 		}
 
-		// Serialize envelope
 		envelopeBytes, err := borsh.Serialize(envelope)
 		require.NoError(t, err)
 
-		// Encode to base64
 		envelopeB64 := base64.StdEncoding.EncodeToString(envelopeBytes)
 
-		// Decode it back
-		decodedManifest, manifestBytes, returnedEnvelopeBytes, err := DecodeManifestFromBase64(envelopeB64)
+		decodedManifest, manifestBytes, returnedEnvelopeBytes, err := DecodeManifestFromBase64(envelopeB64, V2)
 		require.NoError(t, err)
 		require.NotNil(t, decodedManifest)
 		require.NotEmpty(t, manifestBytes)
 		require.Equal(t, envelopeBytes, returnedEnvelopeBytes)
 
-		// Verify decoded values
 		require.Equal(t, "test-namespace", decodedManifest.Namespace.Name)
 		require.Equal(t, uint32(123), decodedManifest.Namespace.Nonce)
 		require.Equal(t, RestartPolicyAlways, decodedManifest.Pivot.Restart)
 	})
 
 	t.Run("decode raw manifest from base64", func(t *testing.T) {
-		// Create a valid manifest
 		manifest := Manifest{
-			Namespace: Namespace{
-				Name:  "raw-test",
-				Nonce: 456,
-			},
-			Pivot: PivotConfig{
-				Restart: RestartPolicyNever,
-			},
+			Namespace: Namespace{Name: "raw-test", Nonce: 456},
+			Pivot:     PivotConfig{Restart: RestartPolicyNever},
 		}
 
-		// Serialize directly
 		manifestBytes, err := borsh.Serialize(manifest)
 		require.NoError(t, err)
 
-		// Encode to base64
 		manifestB64 := base64.StdEncoding.EncodeToString(manifestBytes)
 
-		// Decode it back
-		decoded, decodedBytes, err := DecodeRawManifestFromBase64(manifestB64)
+		decoded, decodedBytes, err := DecodeRawManifestFromBase64(manifestB64, V2)
 		require.NoError(t, err)
 		require.NotNil(t, decoded)
 		require.Equal(t, manifestBytes, decodedBytes)
@@ -279,25 +252,17 @@ func TestDecodeManifestSuccess(t *testing.T) {
 	})
 
 	t.Run("decode envelope from base64", func(t *testing.T) {
-		// Create manifest with envelope
 		manifest := Manifest{
-			Namespace: Namespace{
-				Name:  "envelope-test",
-				Nonce: 789,
-			},
+			Namespace: Namespace{Name: "envelope-test", Nonce: 789},
 		}
-
-		envelope := ManifestEnvelope{
-			Manifest: manifest,
-		}
+		envelope := ManifestEnvelope{Manifest: manifest}
 
 		envelopeBytes, err := borsh.Serialize(envelope)
 		require.NoError(t, err)
 
 		envelopeB64 := base64.StdEncoding.EncodeToString(envelopeBytes)
 
-		// Decode
-		decodedEnv, decodedManifest, manifestBytes, returnedEnvBytes, err := DecodeManifestEnvelopeFromBase64(envelopeB64)
+		decodedEnv, decodedManifest, manifestBytes, returnedEnvBytes, err := DecodeManifestEnvelopeFromBase64(envelopeB64, V2)
 		require.NoError(t, err)
 		require.NotNil(t, decodedEnv)
 		require.NotNil(t, decodedManifest)

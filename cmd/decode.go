@@ -11,6 +11,14 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// apiVersionToManifestVersion maps the CLI --api-version flag to a ManifestVersion.
+func apiVersionToManifestVersion(apiVersion string) manifest.ManifestVersion {
+	if apiVersion == "v1" {
+		return manifest.V0
+	}
+	return manifest.V2
+}
+
 // DecodeCommand creates the decode commands
 func DecodeCommand() *cli.Command {
 	return &cli.Command{
@@ -40,6 +48,11 @@ func decodeRawManifestCommand() *cli.Command {
 				Name:  "json",
 				Usage: "Output in JSON format",
 			},
+			&cli.StringFlag{
+				Name:  "api-version",
+				Usage: "Manifest format version (v1 or v2)",
+				Value: "v2",
+			},
 		},
 		Action: runDecodeRawManifestCommand,
 	}
@@ -57,14 +70,16 @@ func runDecodeRawManifestCommand(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("only one of --file or --base64 should be provided")
 	}
 
+	mv := apiVersionToManifestVersion(cmd.String("api-version"))
+
 	var m *manifest.Manifest
 	var manifestBytes []byte
 	var err error
 
 	if filePath != "" {
-		m, manifestBytes, err = manifest.DecodeRawManifestFromFile(filePath)
+		m, manifestBytes, err = manifest.DecodeRawManifestFromFile(filePath, mv)
 	} else {
-		m, manifestBytes, err = manifest.DecodeRawManifestFromBase64(b64)
+		m, manifestBytes, err = manifest.DecodeRawManifestFromBase64(b64, mv)
 	}
 
 	if err != nil {
@@ -114,6 +129,11 @@ func decodeManifestEnvelopeCommand() *cli.Command {
 				Name:  "json",
 				Usage: "Output in JSON format",
 			},
+			&cli.StringFlag{
+				Name:  "api-version",
+				Usage: "Manifest format version (v1 or v2)",
+				Value: "v2",
+			},
 		},
 		Action: runDecodeManifestEnvelopeCommand,
 	}
@@ -131,14 +151,16 @@ func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) err
 		return fmt.Errorf("only one of --file or --base64 should be provided")
 	}
 
+	mv := apiVersionToManifestVersion(cmd.String("api-version"))
+
 	var envelope *manifest.ManifestEnvelope
 	var manifestBytes, envelopeBytes []byte
 	var err error
 
 	if filePath != "" {
-		envelope, _, manifestBytes, envelopeBytes, err = manifest.DecodeManifestEnvelopeFromFile(filePath)
+		envelope, _, manifestBytes, envelopeBytes, err = manifest.DecodeManifestEnvelopeFromFile(filePath, mv)
 	} else {
-		envelope, _, manifestBytes, envelopeBytes, err = manifest.DecodeManifestEnvelopeFromBase64(b64)
+		envelope, _, manifestBytes, envelopeBytes, err = manifest.DecodeManifestEnvelopeFromBase64(b64, mv)
 	}
 
 	if err != nil {

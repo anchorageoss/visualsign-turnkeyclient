@@ -646,7 +646,8 @@ func TestProcessManifest(t *testing.T) {
 		require.NoError(t, err)
 
 		response := &api.SignablePayloadResponse{
-			QosManifestB64: manifestB64,
+			QosManifestB64:  manifestB64,
+			ManifestVersion: manifest.V2,
 		}
 
 		result := &VerifyResult{}

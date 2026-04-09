@@ -29,6 +29,8 @@ package api
 import (
 	"crypto/ecdsa"
 	"math/big"
+
+	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 )
 
 // TurnkeyAPIKey represents the API key configuration
@@ -118,6 +120,7 @@ type SignablePayloadResponse struct {
 	InputPayloadDigest               string                     `json:"inputPayloadDigest,omitempty"` // v2
 	MetadataDigest                   string                     `json:"metadataDigest,omitempty"`     // v2
 	TurnkeySerializedSignablePayload string                     `json:"turnkeySerializedSignablePayload"`
+	ManifestVersion                  manifest.ManifestVersion   `json:"manifestVersion"`
 	Attestations                     map[AttestationType]string `json:"attestations"`
 	QosManifestB64                   string                     `json:"qosManifestB64,omitempty"`
 	QosManifestEnvelopeB64           string                     `json:"qosManifestEnvelopeB64,omitempty"`
