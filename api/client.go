@@ -75,7 +75,9 @@ func NewClientWithOptions(hostURI string, httpClient HTTPClient, organizationID 
 		return nil, err
 	}
 	for _, opt := range opts {
-		opt(client)
+		if opt != nil {
+			opt(client)
+		}
 	}
 	return client, nil
 }
