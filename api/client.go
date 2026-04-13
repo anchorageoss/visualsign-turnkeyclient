@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/crypto"
 )
@@ -23,12 +24,19 @@ type KeyProvider interface {
 	GetAPIKey(ctx context.Context) (*TurnkeyAPIKey, error)
 }
 
+// DefaultAPIVersion is the API version used when none is specified.
+const DefaultAPIVersion = "v1"
+
+// validAPIVersion matches well-formed version strings (e.g. "v1", "v2").
+var validAPIVersion = regexp.MustCompile(`^v[0-9]+$`)
+
 // Client implements the Turnkey API client
 type Client struct {
 	HostURI        string
 	HTTPClient     HTTPClient
 	APIKey         *TurnkeyAPIKey
 	APIKeyProvider KeyProvider
+	apiVersion     string
 }
 
 // NewClient creates a new Turnkey API client with key provider
@@ -46,6 +54,30 @@ func NewClient(hostURI string, httpClient HTTPClient, organizationID string, pro
 		APIKey:         apiKey,
 		APIKeyProvider: provider,
 	}, nil
+}
+
+// ClientOption configures a Client.
+type ClientOption func(*Client)
+
+// WithAPIVersion returns a ClientOption that sets the API version used in
+// visualsign endpoint paths (e.g. "v1", "v2"). The default is "v1".
+func WithAPIVersion(version string) ClientOption {
+	return func(c *Client) {
+		c.apiVersion = version
+	}
+}
+
+// NewClientWithOptions creates a new Turnkey API client, applying any
+// provided options after the base client is initialised.
+func NewClientWithOptions(hostURI string, httpClient HTTPClient, organizationID string, provider KeyProvider, opts ...ClientOption) (*Client, error) {
+	client, err := NewClient(hostURI, httpClient, organizationID, provider)
+	if err != nil {
+		return nil, err
+	}
+	for _, opt := range opts {
+		opt(client)
+	}
+	return client, nil
 }
 
 // CreateSignablePayloadRequest represents the request to create signable payload
@@ -83,7 +115,7 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	}
 
 	// Create and stamp the request
-	url := fmt.Sprintf("%s/visualsign/api/v1/parse", c.HostURI)
+	url := fmt.Sprintf("%s/visualsign/api/%s/parse", c.HostURI, c.resolveAPIVersion())
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
@@ -244,6 +276,18 @@ func (c *Client) GetBootAttestation(ctx context.Context, publicKey, enclaveType 
 	}
 
 	return attestationResp.AttestationDocument, nil
+}
+
+// resolveAPIVersion returns the configured API version, defaulting to "v1".
+// It validates the version format to prevent path traversal.
+func (c *Client) resolveAPIVersion() string {
+	if c.apiVersion == "" {
+		return DefaultAPIVersion
+	}
+	if !validAPIVersion.MatchString(c.apiVersion) {
+		return DefaultAPIVersion
+	}
+	return c.apiVersion
 }
 
 // generateStamp creates an API key stamp for the request.

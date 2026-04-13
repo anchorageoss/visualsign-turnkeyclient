@@ -69,6 +69,26 @@ func TestNewClient(t *testing.T) {
 		require.Nil(t, client)
 		require.Contains(t, err.Error(), "failed to load API key")
 	})
+
+	t.Run("NewClientWithOptions sets API version", func(t *testing.T) {
+		provider := &mockKeyProvider{apiKey: apiKey}
+		httpClient := &http.Client{}
+
+		client, err := NewClientWithOptions("https://api.turnkey.com", httpClient, "test-org", provider, WithAPIVersion("v2"))
+		require.NoError(t, err)
+		require.NotNil(t, client)
+		require.Equal(t, "v2", client.apiVersion)
+	})
+
+	t.Run("NewClientWithOptions defaults to v1", func(t *testing.T) {
+		provider := &mockKeyProvider{apiKey: apiKey}
+		httpClient := &http.Client{}
+
+		client, err := NewClientWithOptions("https://api.turnkey.com", httpClient, "test-org", provider)
+		require.NoError(t, err)
+		require.NotNil(t, client)
+		require.Equal(t, DefaultAPIVersion, client.resolveAPIVersion())
+	})
 }
 
 // TestCreateSignablePayload tests the CreateSignablePayload function
@@ -246,6 +266,52 @@ func TestCreateSignablePayload(t *testing.T) {
 		require.False(t, ok)
 	})
 
+	for _, tc := range []struct {
+		name       string
+		apiVersion string
+		wantPath   string
+	}{
+		{"default uses v1", "", "https://api.turnkey.com/visualsign/api/v1/parse"},
+		{"explicit v1", "v1", "https://api.turnkey.com/visualsign/api/v1/parse"},
+		{"explicit v2", "v2", "https://api.turnkey.com/visualsign/api/v2/parse"},
+		{"path traversal falls back to v1", "../../admin", "https://api.turnkey.com/visualsign/api/v1/parse"},
+		{"slash in version falls back to v1", "v1/extra", "https://api.turnkey.com/visualsign/api/v1/parse"},
+		{"query string falls back to v1", "v2?q=1", "https://api.turnkey.com/visualsign/api/v1/parse"},
+		{"invalid format falls back to v1", "2", "https://api.turnkey.com/visualsign/api/v1/parse"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := TurnkeyVisualSignResponse{}
+			response.Response.ParsedTransaction.Payload.SignablePayload = "test-signable-payload"
+
+			responseBody, _ := json.Marshal(response)
+			mockResp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(responseBody)),
+			}
+
+			mockClient := &mockHTTPClient{response: mockResp}
+			c := &Client{
+				HostURI:    "https://api.turnkey.com",
+				HTTPClient: mockClient,
+				APIKey: &TurnkeyAPIKey{
+					PublicKey:      "test-public-key",
+					PrivateKey:     privKey,
+					OrganizationID: "test-org",
+				},
+				apiVersion: tc.apiVersion,
+			}
+
+			req := &CreateSignablePayloadRequest{
+				UnsignedPayload: "test-payload",
+				Chain:           "test-chain",
+			}
+
+			_, err := c.CreateSignablePayload(context.Background(), req)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantPath, mockClient.lastRequest.URL.String())
+		})
+	}
+
 	t.Run("response with attestations", func(t *testing.T) {
 		response := TurnkeyVisualSignResponse{
 			BootProof: &TurnkeyBootProof{
@@ -419,5 +485,34 @@ func TestGetBootAttestation(t *testing.T) {
 		require.Error(t, err)
 		require.Empty(t, result)
 		require.Contains(t, err.Error(), "failed to decode")
+	})
+
+	t.Run("attestation URL unchanged with v2 API version", func(t *testing.T) {
+		response := AttestationQueryResponse{
+			AttestationDocument: "test-attestation-doc",
+		}
+
+		responseBody, _ := json.Marshal(response)
+		mockResp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(responseBody)),
+		}
+
+		mockClient := &mockHTTPClient{response: mockResp}
+		v2Client := &Client{
+			HostURI:    "https://api.turnkey.com",
+			HTTPClient: mockClient,
+			APIKey: &TurnkeyAPIKey{
+				PublicKey:      "test-public-key",
+				PrivateKey:     privKey,
+				OrganizationID: "test-org",
+			},
+			apiVersion: "v2",
+		}
+
+		result, err := v2Client.GetBootAttestation(context.Background(), "test-key", "signer")
+		require.NoError(t, err)
+		require.Equal(t, "test-attestation-doc", result)
+		require.Equal(t, "https://api.turnkey.com/public/v1/query/get_attestation", mockClient.lastRequest.URL.String())
 	})
 }
