@@ -3,6 +3,7 @@ package cmd
 import (
 	"testing"
 
+	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 )
@@ -60,5 +61,12 @@ func TestDecodeRawManifestFlags(t *testing.T) {
 
 	require.NotNil(t, cmd)
 	require.Equal(t, "raw", cmd.Name)
-	require.Len(t, cmd.Flags, 4) // --file, --base64, --json
+	require.Len(t, cmd.Flags, 4) // --file, --base64, --json, --api-version
+}
+
+func TestApiVersionToManifestVersion(t *testing.T) {
+	require.Equal(t, manifest.V0, apiVersionToManifestVersion("v1"))
+	require.Equal(t, manifest.V2, apiVersionToManifestVersion("v2"))
+	require.Equal(t, manifest.V2, apiVersionToManifestVersion(""))
+	require.Equal(t, manifest.V2, apiVersionToManifestVersion("anything"))
 }

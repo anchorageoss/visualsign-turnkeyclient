@@ -370,3 +370,68 @@ func TestFormatManifestEnvelopeJSON(t *testing.T) {
 		require.Len(t, approvals, 1)
 	})
 }
+
+func TestFormatPCRValidationResults(t *testing.T) {
+	formatter := NewFormatter()
+
+	t.Run("empty results", func(t *testing.T) {
+		result := formatter.FormatPCRValidationResults(nil, "")
+		require.Empty(t, result)
+	})
+
+	t.Run("single pass", func(t *testing.T) {
+		results := []PCRValidationResult{
+			{Index: 0, Expected: "aabb", Actual: "aabb", Valid: true},
+		}
+		output := formatter.FormatPCRValidationResults(results, "")
+		require.Contains(t, output, "PASS")
+		require.Contains(t, output, "PCR[0]")
+	})
+
+	t.Run("single fail", func(t *testing.T) {
+		results := []PCRValidationResult{
+			{Index: 1, Expected: "aabb", Actual: "ccdd", Valid: false},
+		}
+		output := formatter.FormatPCRValidationResults(results, "")
+		require.Contains(t, output, "FAIL")
+		require.Contains(t, output, "PCR[1]")
+	})
+
+	t.Run("mixed results", func(t *testing.T) {
+		results := []PCRValidationResult{
+			{Index: 0, Expected: "aa", Actual: "aa", Valid: true},
+			{Index: 2, Expected: "bb", Actual: "cc", Valid: false},
+		}
+		output := formatter.FormatPCRValidationResults(results, "  ")
+		require.Contains(t, output, "PASS")
+		require.Contains(t, output, "FAIL")
+	})
+}
+
+func TestFormatVerificationResult_WithPCRValidations(t *testing.T) {
+	formatter := NewFormatter()
+
+	result := &VerifyResult{
+		AttestationValid: true,
+		SignablePayload:  "payload",
+		PublicKeyHex:     "pub",
+		SignatureHex:     "sig",
+		MessageHex:       "msg",
+		ModuleID:         "mod",
+		SignatureValid:   true,
+		Valid:            true,
+		PCRValidationResults: []PCRValidationResult{
+			{Index: 0, Expected: "aa", Actual: "aa", Valid: true},
+		},
+	}
+
+	formatted := formatter.FormatVerificationResult(result)
+	require.NotNil(t, formatted)
+
+	validations, ok := formatted["pcrValidations"]
+	require.True(t, ok)
+	valSlice := validations.([]map[string]interface{})
+	require.Len(t, valSlice, 1)
+	require.Equal(t, uint(0), valSlice[0]["index"])
+	require.Equal(t, true, valSlice[0]["valid"])
+}

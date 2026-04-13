@@ -636,10 +636,8 @@ func TestProcessManifest(t *testing.T) {
 	})
 
 	t.Run("real manifest from embedded testdata", func(t *testing.T) {
-		// Use embedded manifest data from central testdata package
 		manifestBytes := testdata.ManifestBin
 
-		// Encode to base64
 		manifestB64 := base64.StdEncoding.EncodeToString(manifestBytes)
 		manifestHash := manifest.ComputeHash(manifestBytes)
 		userData, err := hex.DecodeString(manifestHash)
@@ -652,19 +650,37 @@ func TestProcessManifest(t *testing.T) {
 
 		result := &VerifyResult{}
 
-		// This should succeed and the hashes should match
 		err = service.processManifest(response, userData, result)
 		require.NoError(t, err)
 		require.NotNil(t, result.Manifest)
 		require.True(t, result.ManifestReserialization.Matches)
 		require.Equal(t, manifestHash, result.QosManifestHash)
 
-		// Verify manifest was decoded properly
 		require.NotEmpty(t, result.Manifest.Namespace.Name)
 		require.NotNil(t, result.Manifest.Pivot)
-
-		// Additional validation: ensure reserialized hash matches original
 		require.Equal(t, manifestHash, result.ManifestReserialization.RawManifestHash)
 		require.Equal(t, manifestHash, result.ManifestReserialization.ReserializedManifestHash)
+	})
+
+	t.Run("manifest envelope from embedded testdata", func(t *testing.T) {
+		// testdata/manifest.bin is an envelope
+		manifestBytes := testdata.ManifestBin
+		envelopeB64 := base64.StdEncoding.EncodeToString(manifestBytes)
+		envelopeHash := manifest.ComputeHash(manifestBytes)
+		userData, err := hex.DecodeString(envelopeHash)
+		require.NoError(t, err)
+
+		response := &api.SignablePayloadResponse{
+			QosManifestEnvelopeB64: envelopeB64,
+			QosManifestB64:         envelopeB64, // also set raw for fallback hash
+			ManifestVersion:        manifest.V2,
+		}
+
+		result := &VerifyResult{}
+
+		err = service.processManifest(response, userData, result)
+		require.NoError(t, err)
+		require.NotNil(t, result.Manifest)
+		require.NotEmpty(t, result.Manifest.Namespace.Name)
 	})
 }

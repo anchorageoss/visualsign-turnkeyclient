@@ -226,19 +226,90 @@ func TestLoadAPIKeyFromFileIntegration(t *testing.T) {
 		err = os.WriteFile(filepath.Join(configDir, "test-key.private"), validPrivate, 0644)
 		require.NoError(t, err)
 
-		// Temporarily override HOME
-		oldHome := os.Getenv("HOME")
-		err = os.Setenv("HOME", tmpDir)
-		require.NoError(t, err)
-		defer func() {
-			_ = os.Setenv("HOME", oldHome)
-		}()
+		t.Setenv("HOME", tmpDir)
 
 		// Test LoadAPIKeyFromFile
 		key, err := LoadAPIKeyFromFile("test-key")
 		assert.NoError(t, err)
 		assert.NotNil(t, key)
 		assert.Equal(t, "02f739f8c77b32f4d5f13265861febd76e7a9c61a1140d296b8c16302508870316", key.PublicKey)
+	})
+}
+
+func TestLoadAPIKeyEdgeCases(t *testing.T) {
+	t.Run("short private key needs padding", func(t *testing.T) {
+		// Use LoadAPIKeyFromFile (not the test helper) since only it has padding logic
+		tmpDir := t.TempDir()
+		configDir := filepath.Join(tmpDir, ".config", "turnkey", "keys")
+		require.NoError(t, os.MkdirAll(configDir, 0755))
+
+		// 62 hex chars = 31 bytes → triggers left-padding to 32 bytes
+		shortKey := "7f361ddfd73440e707f4daa6775b376859e8a3c9f29b3bb694a12927c0213c"
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "short.public"), []byte("02aabbccdd"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "short.private"), []byte(shortKey+":p256"), 0644))
+
+		t.Setenv("HOME", tmpDir)
+
+		key, err := LoadAPIKeyFromFile("short")
+		require.NoError(t, err)
+		require.NotNil(t, key)
+		require.NotNil(t, key.PrivateKey)
+	})
+
+	t.Run("invalid private key format", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		err := os.WriteFile(filepath.Join(tmpDir, "bad.public"), []byte("02aabb"), 0644)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(tmpDir, "bad.private"), []byte("nocolon"), 0644)
+		require.NoError(t, err)
+
+		_, err = loadAPIKeyFromPath(tmpDir, "bad")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid private key format")
+	})
+
+	t.Run("unsupported curve", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		err := os.WriteFile(filepath.Join(tmpDir, "curve.public"), []byte("02aabb"), 0644)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(tmpDir, "curve.private"), []byte("aabb:secp256k1"), 0644)
+		require.NoError(t, err)
+
+		_, err = loadAPIKeyFromPath(tmpDir, "curve")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported curve")
+	})
+
+	t.Run("invalid hex in private key", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		err := os.WriteFile(filepath.Join(tmpDir, "hex.public"), []byte("02aabb"), 0644)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(tmpDir, "hex.private"), []byte("ZZZZ:p256"), 0644)
+		require.NoError(t, err)
+
+		_, err = loadAPIKeyFromPath(tmpDir, "hex")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to decode private key hex")
+	})
+
+	t.Run("missing public key file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		err := os.WriteFile(filepath.Join(tmpDir, "nopub.private"), []byte("aabb:p256"), 0644)
+		require.NoError(t, err)
+
+		_, err = loadAPIKeyFromPath(tmpDir, "nopub")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to read public key")
+	})
+
+	t.Run("missing private key file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		err := os.WriteFile(filepath.Join(tmpDir, "nopriv.public"), []byte("02aabb"), 0644)
+		require.NoError(t, err)
+
+		_, err = loadAPIKeyFromPath(tmpDir, "nopriv")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to read private key")
 	})
 }
 
