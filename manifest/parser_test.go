@@ -175,21 +175,24 @@ func TestDecodeManifestEnvelopeFromBase64(t *testing.T) {
 	})
 }
 
-// Test with actual embedded testdata (v2 manifest)
+// Test with actual embedded testdata (v2 envelope)
 func TestDecodeActualManifest(t *testing.T) {
-	manifestBytes := testdata.ManifestBin
-	manifestB64 := base64.StdEncoding.EncodeToString(manifestBytes)
+	envelopeBytes := testdata.ManifestBin
+	envelopeB64 := base64.StdEncoding.EncodeToString(envelopeBytes)
 
-	manifest, decodedBytes, err := DecodeRawManifestFromBase64(manifestB64, V2)
+	env, m, manifestBytes, returnedEnvBytes, err := DecodeManifestEnvelopeFromBase64(envelopeB64, V2)
 	assert.NoError(t, err)
-	assert.NotNil(t, manifest)
-	assert.NotEmpty(t, decodedBytes)
+	assert.NotNil(t, env)
+	assert.NotNil(t, m)
+	assert.NotEmpty(t, manifestBytes)
+	assert.Equal(t, envelopeBytes, returnedEnvBytes)
 
-	hash := ComputeHash(manifestBytes)
-	assert.Len(t, hash, 64)
+	// Envelope hash should be stable
+	envelopeHash := ComputeHash(envelopeBytes)
+	assert.Len(t, envelopeHash, 64)
 
-	reserializedHash := ComputeHash(decodedBytes)
-	assert.Equal(t, hash, reserializedHash, "reserialized manifest should have same hash")
+	// Manifest should have valid namespace
+	assert.NotEmpty(t, m.Namespace.Name)
 }
 
 // TestDecodeManifestSuccess tests the happy path with synthetic data
@@ -272,12 +275,12 @@ func TestDecodeManifestSuccess(t *testing.T) {
 	})
 }
 
-// --- V0 (legacy) decode path tests ---
+// --- V1 (legacy) decode path tests ---
 
-func TestDecodeV0RawManifest(t *testing.T) {
-	v0 := ManifestV0{
+func TestDecodeV1RawManifest(t *testing.T) {
+	v0 := ManifestV1{
 		Namespace:   Namespace{Name: "v0-test", Nonce: 100, QuorumKey: []byte{0x01}},
-		Pivot:       PivotConfigV0{Restart: RestartPolicyAlways, Args: []string{"--port", "3000"}},
+		Pivot:       PivotConfigV1{Restart: RestartPolicyAlways, Args: []string{"--port", "3000"}},
 		ManifestSet: ManifestSet{Threshold: 1},
 		ShareSet:    ShareSet{Threshold: 2},
 		Enclave:     NitroConfig{QosCommit: "v0commit"},
@@ -290,7 +293,7 @@ func TestDecodeV0RawManifest(t *testing.T) {
 	b64 := base64.StdEncoding.EncodeToString(data)
 
 	t.Run("from base64", func(t *testing.T) {
-		m, manifestBytes, err := DecodeRawManifestFromBase64(b64, V0)
+		m, manifestBytes, err := DecodeRawManifestFromBase64(b64, V1)
 		require.NoError(t, err)
 		require.NotNil(t, m)
 		require.NotEmpty(t, manifestBytes)
@@ -306,17 +309,17 @@ func TestDecodeV0RawManifest(t *testing.T) {
 		p := filepath.Join(tmpDir, "v0.bin")
 		require.NoError(t, os.WriteFile(p, data, 0644))
 
-		m, _, err := DecodeRawManifestFromFile(p, V0)
+		m, _, err := DecodeRawManifestFromFile(p, V1)
 		require.NoError(t, err)
 		require.Equal(t, "v0-test", m.Namespace.Name)
 	})
 }
 
-func TestDecodeV0Envelope(t *testing.T) {
-	v0 := ManifestEnvelopeV0{
-		Manifest: ManifestV0{
+func TestDecodeV1Envelope(t *testing.T) {
+	v0 := ManifestEnvelopeV1{
+		Manifest: ManifestV1{
 			Namespace: Namespace{Name: "v0-env", Nonce: 200},
-			Pivot:     PivotConfigV0{Restart: RestartPolicyNever, Args: []string{"arg1"}},
+			Pivot:     PivotConfigV1{Restart: RestartPolicyNever, Args: []string{"arg1"}},
 		},
 		ManifestSetApprovals: []Approval{{Signature: []byte{0xAA}, Member: QuorumMember{Alias: "a1"}}},
 		ShareSetApprovals:    []Approval{},
@@ -328,7 +331,7 @@ func TestDecodeV0Envelope(t *testing.T) {
 	b64 := base64.StdEncoding.EncodeToString(data)
 
 	t.Run("envelope from base64", func(t *testing.T) {
-		env, m, manifestBytes, envBytes, err := DecodeManifestEnvelopeFromBase64(b64, V0)
+		env, m, manifestBytes, envBytes, err := DecodeManifestEnvelopeFromBase64(b64, V1)
 		require.NoError(t, err)
 		require.NotNil(t, env)
 		require.NotNil(t, m)
@@ -343,14 +346,14 @@ func TestDecodeV0Envelope(t *testing.T) {
 		p := filepath.Join(tmpDir, "v0env.bin")
 		require.NoError(t, os.WriteFile(p, data, 0644))
 
-		env, m, _, _, err := DecodeManifestEnvelopeFromFile(p, V0)
+		env, m, _, _, err := DecodeManifestEnvelopeFromFile(p, V1)
 		require.NoError(t, err)
 		require.Equal(t, "v0-env", m.Namespace.Name)
 		require.Len(t, env.ManifestSetApprovals, 1)
 	})
 
-	t.Run("DecodeManifestFromBase64 with V0", func(t *testing.T) {
-		m, manifestBytes, envBytes, err := DecodeManifestFromBase64(b64, V0)
+	t.Run("DecodeManifestFromBase64 with V1", func(t *testing.T) {
+		m, manifestBytes, envBytes, err := DecodeManifestFromBase64(b64, V1)
 		require.NoError(t, err)
 		require.NotNil(t, m)
 		require.NotEmpty(t, manifestBytes)
@@ -358,12 +361,12 @@ func TestDecodeV0Envelope(t *testing.T) {
 		require.Equal(t, "v0-env", m.Namespace.Name)
 	})
 
-	t.Run("DecodeManifestFromFile with V0", func(t *testing.T) {
+	t.Run("DecodeManifestFromFile with V1", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		p := filepath.Join(tmpDir, "v0file.bin")
 		require.NoError(t, os.WriteFile(p, data, 0644))
 
-		m, _, _, err := DecodeManifestFromFile(p, V0)
+		m, _, _, err := DecodeManifestFromFile(p, V1)
 		require.NoError(t, err)
 		require.Equal(t, "v0-env", m.Namespace.Name)
 	})
@@ -386,10 +389,10 @@ func TestDecodeUnknownVersion(t *testing.T) {
 	})
 }
 
-func TestManifestV0ToManifest(t *testing.T) {
-	v0 := ManifestV0{
+func TestManifestV1ToManifest(t *testing.T) {
+	v0 := ManifestV1{
 		Namespace:   Namespace{Name: "convert-test", Nonce: 42, QuorumKey: []byte{0x01, 0x02}},
-		Pivot:       PivotConfigV0{Hash: Hash256{0xAA}, Restart: RestartPolicyAlways, Args: []string{"a", "b"}},
+		Pivot:       PivotConfigV1{Hash: Hash256{0xAA}, Restart: RestartPolicyAlways, Args: []string{"a", "b"}},
 		ManifestSet: ManifestSet{Threshold: 3, Members: []QuorumMember{{Alias: "m1", PubKey: []byte{0x10}}}},
 		ShareSet:    ShareSet{Threshold: 2, Members: []QuorumMember{{Alias: "s1", PubKey: []byte{0x20}}}},
 		Enclave:     NitroConfig{Pcr0: []byte{0x30}, QosCommit: "commit1"},
@@ -412,11 +415,11 @@ func TestManifestV0ToManifest(t *testing.T) {
 	require.Equal(t, uint32(1), m.PatchSet.Threshold)
 }
 
-func TestManifestEnvelopeV0ToManifestEnvelope(t *testing.T) {
-	v0 := ManifestEnvelopeV0{
-		Manifest: ManifestV0{
+func TestManifestEnvelopeV1ToManifestEnvelope(t *testing.T) {
+	v0 := ManifestEnvelopeV1{
+		Manifest: ManifestV1{
 			Namespace: Namespace{Name: "env-convert"},
-			Pivot:     PivotConfigV0{Restart: RestartPolicyNever},
+			Pivot:     PivotConfigV1{Restart: RestartPolicyNever},
 		},
 		ManifestSetApprovals: []Approval{
 			{Signature: []byte{0x11}, Member: QuorumMember{Alias: "a1", PubKey: []byte{0x22}}},

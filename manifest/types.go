@@ -93,7 +93,7 @@ type NitroConfig struct {
 //	0 = Server { port: u16, host: String }
 //	1 = Client { port: u16, host: String }
 type BridgeConfig struct {
-	Enum   borsh.Enum `borsh_enum:"true"`
+	Enum   borsh.Enum `borsh_enum:"true" json:"-"`
 	Server BridgeConfigServer
 	Client BridgeConfigClient
 }
@@ -166,40 +166,40 @@ type ManifestEnvelope struct {
 type ManifestVersion int
 
 const (
-	// V0 is the legacy layout (v1 API): PivotConfig has hash, restart, args only.
-	V0 ManifestVersion = iota
+	// V1 is the legacy layout (v1 API): PivotConfig has hash, restart, args only.
+	V1 ManifestVersion = iota
 	// V2 is the current layout (v2 API): PivotConfig has hash, restart, bridge_config, debug_mode, args.
 	V2
 )
 
-// --- V0 types for backward compatibility with v1 API ---
+// --- V1 types for backward compatibility with v1 API ---
 
-// PivotConfigV0 is the legacy pivot config: hash, restart, args (no bridge_config or debug_mode)
-type PivotConfigV0 struct {
+// PivotConfigV1 is the legacy pivot config: hash, restart, args (no bridge_config or debug_mode)
+type PivotConfigV1 struct {
 	Hash    Hash256       `borsh:"hash"`
 	Restart RestartPolicy `borsh:"restart"`
 	Args    []string      `borsh:"args"`
 }
 
-// ManifestV0 uses PivotConfigV0 (legacy layout)
-type ManifestV0 struct {
+// ManifestV1 uses PivotConfigV1 (legacy layout)
+type ManifestV1 struct {
 	Namespace   Namespace     `borsh:"namespace"`
-	Pivot       PivotConfigV0 `borsh:"pivot"`
+	Pivot       PivotConfigV1 `borsh:"pivot"`
 	ManifestSet ManifestSet   `borsh:"manifest_set"`
 	ShareSet    ShareSet      `borsh:"share_set"`
 	Enclave     NitroConfig   `borsh:"enclave"`
 	PatchSet    PatchSet      `borsh:"patch_set"`
 }
 
-// ManifestEnvelopeV0 wraps ManifestV0 with approval signatures (legacy layout)
-type ManifestEnvelopeV0 struct {
-	Manifest             ManifestV0 `borsh:"manifest"`
+// ManifestEnvelopeV1 wraps ManifestV1 with approval signatures (legacy layout)
+type ManifestEnvelopeV1 struct {
+	Manifest             ManifestV1 `borsh:"manifest"`
 	ManifestSetApprovals []Approval `borsh:"manifest_set_approvals"`
 	ShareSetApprovals    []Approval `borsh:"share_set_approvals"`
 }
 
-// ToManifest converts a legacy ManifestV0 to the current Manifest type
-func (v0 *ManifestV0) ToManifest() Manifest {
+// ToManifest converts a legacy ManifestV1 to the current Manifest type
+func (v0 *ManifestV1) ToManifest() Manifest {
 	return Manifest{
 		Namespace: v0.Namespace,
 		Pivot: PivotConfig{
@@ -214,8 +214,8 @@ func (v0 *ManifestV0) ToManifest() Manifest {
 	}
 }
 
-// ToManifestEnvelope converts a legacy ManifestEnvelopeV0 to the current ManifestEnvelope type
-func (v0 *ManifestEnvelopeV0) ToManifestEnvelope() ManifestEnvelope {
+// ToManifestEnvelope converts a legacy ManifestEnvelopeV1 to the current ManifestEnvelope type
+func (v0 *ManifestEnvelopeV1) ToManifestEnvelope() ManifestEnvelope {
 	m := v0.Manifest.ToManifest()
 	return ManifestEnvelope{
 		Manifest:             m,

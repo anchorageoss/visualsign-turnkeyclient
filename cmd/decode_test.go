@@ -65,8 +65,18 @@ func TestDecodeRawManifestFlags(t *testing.T) {
 }
 
 func TestApiVersionToManifestVersion(t *testing.T) {
-	require.Equal(t, manifest.V0, apiVersionToManifestVersion("v1"))
-	require.Equal(t, manifest.V2, apiVersionToManifestVersion("v2"))
-	require.Equal(t, manifest.V2, apiVersionToManifestVersion(""))
-	require.Equal(t, manifest.V2, apiVersionToManifestVersion("anything"))
+	v, err := apiVersionToManifestVersion("v1")
+	require.NoError(t, err)
+	require.Equal(t, manifest.V1, v)
+
+	v, err = apiVersionToManifestVersion("v2")
+	require.NoError(t, err)
+	require.Equal(t, manifest.V2, v)
+
+	_, err = apiVersionToManifestVersion("")
+	require.Error(t, err)
+
+	_, err = apiVersionToManifestVersion("v3")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported api-version")
 }

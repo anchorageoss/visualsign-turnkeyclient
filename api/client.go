@@ -86,7 +86,11 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	}
 
 	// Create and stamp the request
-	url := fmt.Sprintf("%s/visualsign/api/%s/parse", c.HostURI, c.VisualSignAPIVersion)
+	apiVersion := c.VisualSignAPIVersion
+	if apiVersion == "" {
+		apiVersion = "v2"
+	}
+	url := fmt.Sprintf("%s/visualsign/api/%s/parse", c.HostURI, apiVersion)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
@@ -173,7 +177,7 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	// Map API version string to manifest version
 	mv := manifest.V2
 	if c.VisualSignAPIVersion == "v1" {
-		mv = manifest.V0
+		mv = manifest.V1
 	}
 
 	return &SignablePayloadResponse{

@@ -102,6 +102,9 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
 	if apiVersion := cmd.String("api-version"); apiVersion != "" {
+		if apiVersion != "v1" && apiVersion != "v2" {
+			return fmt.Errorf("unsupported api-version %q, must be \"v1\" or \"v2\"", apiVersion)
+		}
 		apiClient.VisualSignAPIVersion = apiVersion
 	}
 
