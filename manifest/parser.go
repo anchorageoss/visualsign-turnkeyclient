@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 
@@ -27,12 +28,14 @@ func reserializeManifest(m Manifest, version ManifestVersion) ([]byte, error) {
 			return nil, fmt.Errorf("failed to serialize v1 manifest: %w", err)
 		}
 		return manifestBytes, nil
-	default:
+	case V2:
 		manifestBytes, err := borsh.Serialize(m)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize manifest: %w", err)
+			return nil, fmt.Errorf("failed to serialize v2 manifest: %w", err)
 		}
 		return manifestBytes, nil
+	default:
+		return nil, fmt.Errorf("unknown manifest version: %d", version)
 	}
 }
 
@@ -187,5 +190,5 @@ func DecodeManifestFromFile(filePath string, version ManifestVersion) (*Manifest
 		return m, data, data, nil
 	}
 
-	return nil, nil, nil, fmt.Errorf("failed to deserialize as envelope (%v) or raw manifest (%v)", envErr, rawErr)
+	return nil, nil, nil, fmt.Errorf("failed to deserialize as envelope or raw manifest: %w", errors.Join(envErr, rawErr))
 }

@@ -390,7 +390,7 @@ func TestDecodeUnknownVersion(t *testing.T) {
 }
 
 func TestManifestV1ToManifest(t *testing.T) {
-	v0 := ManifestV1{
+	v1 := ManifestV1{
 		Namespace:   Namespace{Name: "convert-test", Nonce: 42, QuorumKey: []byte{0x01, 0x02}},
 		Pivot:       PivotConfigV1{Hash: Hash256{0xAA}, Restart: RestartPolicyAlways, Args: []string{"a", "b"}},
 		ManifestSet: ManifestSet{Threshold: 3, Members: []QuorumMember{{Alias: "m1", PubKey: []byte{0x10}}}},
@@ -399,7 +399,7 @@ func TestManifestV1ToManifest(t *testing.T) {
 		PatchSet:    PatchSet{Threshold: 1, Members: []MemberPubKey{{PubKey: []byte{0x40}}}},
 	}
 
-	m := v0.ToManifest()
+	m := v1.ToManifest()
 
 	require.Equal(t, "convert-test", m.Namespace.Name)
 	require.Equal(t, uint32(42), m.Namespace.Nonce)
@@ -416,7 +416,7 @@ func TestManifestV1ToManifest(t *testing.T) {
 }
 
 func TestManifestEnvelopeV1ToManifestEnvelope(t *testing.T) {
-	v0 := ManifestEnvelopeV1{
+	v1 := ManifestEnvelopeV1{
 		Manifest: ManifestV1{
 			Namespace: Namespace{Name: "env-convert"},
 			Pivot:     PivotConfigV1{Restart: RestartPolicyNever},
@@ -430,7 +430,7 @@ func TestManifestEnvelopeV1ToManifestEnvelope(t *testing.T) {
 		},
 	}
 
-	env := v0.ToManifestEnvelope()
+	env := v1.ToManifestEnvelope()
 
 	require.Equal(t, "env-convert", env.Manifest.Namespace.Name)
 	require.Equal(t, RestartPolicyNever, env.Manifest.Pivot.Restart)
