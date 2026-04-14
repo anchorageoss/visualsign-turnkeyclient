@@ -278,16 +278,16 @@ func TestDecodeManifestSuccess(t *testing.T) {
 // --- V1 (legacy) decode path tests ---
 
 func TestDecodeV1RawManifest(t *testing.T) {
-	v0 := ManifestV1{
-		Namespace:   Namespace{Name: "v0-test", Nonce: 100, QuorumKey: []byte{0x01}},
+	v1 := ManifestV1{
+		Namespace:   Namespace{Name: "v1-test", Nonce: 100, QuorumKey: []byte{0x01}},
 		Pivot:       PivotConfigV1{Restart: RestartPolicyAlways, Args: []string{"--port", "3000"}},
 		ManifestSet: ManifestSet{Threshold: 1},
 		ShareSet:    ShareSet{Threshold: 2},
-		Enclave:     NitroConfig{QosCommit: "v0commit"},
+		Enclave:     NitroConfig{QosCommit: "v1commit"},
 		PatchSet:    PatchSet{Threshold: 1},
 	}
 
-	data, err := borsh.Serialize(v0)
+	data, err := borsh.Serialize(v1)
 	require.NoError(t, err)
 
 	b64 := base64.StdEncoding.EncodeToString(data)
@@ -297,7 +297,7 @@ func TestDecodeV1RawManifest(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, m)
 		require.NotEmpty(t, manifestBytes)
-		require.Equal(t, "v0-test", m.Namespace.Name)
+		require.Equal(t, "v1-test", m.Namespace.Name)
 		require.Equal(t, RestartPolicyAlways, m.Pivot.Restart)
 		require.Equal(t, []string{"--port", "3000"}, m.Pivot.Args)
 		require.Empty(t, m.Pivot.BridgeConfig)
@@ -306,26 +306,26 @@ func TestDecodeV1RawManifest(t *testing.T) {
 
 	t.Run("from file", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		p := filepath.Join(tmpDir, "v0.bin")
+		p := filepath.Join(tmpDir, "v1.bin")
 		require.NoError(t, os.WriteFile(p, data, 0644))
 
 		m, _, err := DecodeRawManifestFromFile(p, V1)
 		require.NoError(t, err)
-		require.Equal(t, "v0-test", m.Namespace.Name)
+		require.Equal(t, "v1-test", m.Namespace.Name)
 	})
 }
 
 func TestDecodeV1Envelope(t *testing.T) {
-	v0 := ManifestEnvelopeV1{
+	v1 := ManifestEnvelopeV1{
 		Manifest: ManifestV1{
-			Namespace: Namespace{Name: "v0-env", Nonce: 200},
+			Namespace: Namespace{Name: "v1-env", Nonce: 200},
 			Pivot:     PivotConfigV1{Restart: RestartPolicyNever, Args: []string{"arg1"}},
 		},
 		ManifestSetApprovals: []Approval{{Signature: []byte{0xAA}, Member: QuorumMember{Alias: "a1"}}},
 		ShareSetApprovals:    []Approval{},
 	}
 
-	data, err := borsh.Serialize(v0)
+	data, err := borsh.Serialize(v1)
 	require.NoError(t, err)
 
 	b64 := base64.StdEncoding.EncodeToString(data)
@@ -337,18 +337,18 @@ func TestDecodeV1Envelope(t *testing.T) {
 		require.NotNil(t, m)
 		require.NotEmpty(t, manifestBytes)
 		require.Equal(t, data, envBytes)
-		require.Equal(t, "v0-env", m.Namespace.Name)
+		require.Equal(t, "v1-env", m.Namespace.Name)
 		require.Len(t, env.ManifestSetApprovals, 1)
 	})
 
 	t.Run("envelope from file", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		p := filepath.Join(tmpDir, "v0env.bin")
+		p := filepath.Join(tmpDir, "v1env.bin")
 		require.NoError(t, os.WriteFile(p, data, 0644))
 
 		env, m, _, _, err := DecodeManifestEnvelopeFromFile(p, V1)
 		require.NoError(t, err)
-		require.Equal(t, "v0-env", m.Namespace.Name)
+		require.Equal(t, "v1-env", m.Namespace.Name)
 		require.Len(t, env.ManifestSetApprovals, 1)
 	})
 
@@ -358,17 +358,17 @@ func TestDecodeV1Envelope(t *testing.T) {
 		require.NotNil(t, m)
 		require.NotEmpty(t, manifestBytes)
 		require.Equal(t, data, envBytes)
-		require.Equal(t, "v0-env", m.Namespace.Name)
+		require.Equal(t, "v1-env", m.Namespace.Name)
 	})
 
 	t.Run("DecodeManifestFromFile with V1", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		p := filepath.Join(tmpDir, "v0file.bin")
+		p := filepath.Join(tmpDir, "v1file.bin")
 		require.NoError(t, os.WriteFile(p, data, 0644))
 
 		m, _, _, err := DecodeManifestFromFile(p, V1)
 		require.NoError(t, err)
-		require.Equal(t, "v0-env", m.Namespace.Name)
+		require.Equal(t, "v1-env", m.Namespace.Name)
 	})
 }
 
