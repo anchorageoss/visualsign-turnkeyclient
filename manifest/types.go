@@ -199,27 +199,27 @@ type ManifestEnvelopeV1 struct {
 }
 
 // ToManifest converts a legacy ManifestV1 to the current Manifest type
-func (v0 *ManifestV1) ToManifest() Manifest {
+func (v1 *ManifestV1) ToManifest() Manifest {
 	return Manifest{
-		Namespace: v0.Namespace,
+		Namespace: v1.Namespace,
 		Pivot: PivotConfig{
-			Hash:    v0.Pivot.Hash,
-			Restart: v0.Pivot.Restart,
-			Args:    v0.Pivot.Args,
+			Hash:    v1.Pivot.Hash,
+			Restart: v1.Pivot.Restart,
+			Args:    v1.Pivot.Args,
 		},
-		ManifestSet: v0.ManifestSet,
-		ShareSet:    v0.ShareSet,
-		Enclave:     v0.Enclave,
-		PatchSet:    v0.PatchSet,
+		ManifestSet: v1.ManifestSet,
+		ShareSet:    v1.ShareSet,
+		Enclave:     v1.Enclave,
+		PatchSet:    v1.PatchSet,
 	}
 }
 
 // ToManifestEnvelope converts a legacy ManifestEnvelopeV1 to the current ManifestEnvelope type
-func (v0 *ManifestEnvelopeV1) ToManifestEnvelope() ManifestEnvelope {
-	m := v0.Manifest.ToManifest()
+func (v1 *ManifestEnvelopeV1) ToManifestEnvelope() ManifestEnvelope {
+	m := v1.Manifest.ToManifest()
 	return ManifestEnvelope{
 		Manifest:             m,
-		ManifestSetApprovals: v0.ManifestSetApprovals,
-		ShareSetApprovals:    v0.ShareSetApprovals,
+		ManifestSetApprovals: v1.ManifestSetApprovals,
+		ShareSetApprovals:    v1.ShareSetApprovals,
 	}
 }
