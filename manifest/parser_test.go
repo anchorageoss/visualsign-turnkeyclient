@@ -24,7 +24,7 @@ func TestReserializeManifest(t *testing.T) {
 			},
 		}
 
-		bytes, err := reserializeManifest(m)
+		bytes, err := reserializeManifest(m, V2)
 		require.NoError(t, err)
 		require.NotEmpty(t, bytes)
 
@@ -44,10 +44,10 @@ func TestReserializeManifest(t *testing.T) {
 			},
 		}
 
-		bytes1, err := reserializeManifest(m)
+		bytes1, err := reserializeManifest(m, V2)
 		require.NoError(t, err)
 
-		bytes2, err := reserializeManifest(m)
+		bytes2, err := reserializeManifest(m, V2)
 		require.NoError(t, err)
 
 		require.Equal(t, bytes1, bytes2, "Serialization should be deterministic")

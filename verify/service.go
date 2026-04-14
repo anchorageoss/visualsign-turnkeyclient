@@ -271,18 +271,25 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		return nil
 	}
 
-	// Compute raw manifest hash before attempting full deserialization
-	// This helps debug even if the full manifest parsing fails
-	rawManifestBytes, _ := base64.StdEncoding.DecodeString(response.QosManifestB64)
-	rawManifestHash := manifest.ComputeHash(rawManifestBytes)
+	// Compute raw manifest hash only when raw manifest data is present
+	var rawManifestHash string
+	if response.QosManifestB64 != "" {
+		rawManifestBytes, err := base64.StdEncoding.DecodeString(response.QosManifestB64)
+		if err == nil {
+			rawManifestHash = manifest.ComputeHash(rawManifestBytes)
+		}
+	}
+
+	// Validate manifest version before attempting decode
+	mv := response.ManifestVersion
+	if mv == manifest.ManifestVersionUnknown {
+		return fmt.Errorf("manifest version not set on API response (must be V1 or V2)")
+	}
 
 	// Try to decode the manifest envelope if available, otherwise use raw manifest
-	// The API returns both QosManifestB64 (raw) and QosManifestEnvelopeB64 (with signatures)
 	var decodedManifest *manifest.Manifest
 	var manifestBytes []byte
 	var err error
-
-	mv := response.ManifestVersion
 	var envelopeErr error
 	if response.QosManifestEnvelopeB64 != "" {
 		_, decodedManifest, manifestBytes, _, envelopeErr = manifest.DecodeManifestEnvelopeFromBase64(response.QosManifestEnvelopeB64, mv)
@@ -328,22 +335,21 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		userDataHex := hex.EncodeToString(userData)
 		serializationResult.UserDataHash = userDataHex
 
-		// Check if raw manifest matches
-		rawManifestMatches := rawManifestHash == userDataHex
+		// Check if any hash representation matches UserData
+		rawManifestMatches := rawManifestHash != "" && rawManifestHash == userDataHex
+		reserializedMatches := reserializedManifestHash == userDataHex
+		envelopeMatches := serializationResult.EnvelopeHash != "" && serializationResult.EnvelopeHash == userDataHex
 
-		// Check if envelope matches
-		envelopeMatches := false
-		if serializationResult.EnvelopeHash != "" {
-			envelopeMatches = serializationResult.EnvelopeHash == userDataHex
-		}
-
-		if rawManifestMatches || envelopeMatches {
+		if rawManifestMatches || reserializedMatches || envelopeMatches {
 			serializationResult.Matches = true
 		} else {
 			serializationResult.ReserializationNeeded = true
 			mismatchMsg := fmt.Sprintf(
-				"manifest hash mismatch: boot-time %s != raw-manifest %s",
-				userDataHex, rawManifestHash)
+				"manifest hash mismatch: boot-time %s", userDataHex)
+			if rawManifestHash != "" {
+				mismatchMsg += fmt.Sprintf(" != raw-manifest %s", rawManifestHash)
+			}
+			mismatchMsg += fmt.Sprintf(" != reserialized %s", reserializedManifestHash)
 			if serializationResult.EnvelopeHash != "" {
 				mismatchMsg += fmt.Sprintf(" != envelope %s", serializationResult.EnvelopeHash)
 			}

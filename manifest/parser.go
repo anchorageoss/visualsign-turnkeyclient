@@ -8,13 +8,32 @@ import (
 	"github.com/near/borsh-go"
 )
 
-// reserializeManifest re-encodes a Manifest struct to get its raw bytes.
-func reserializeManifest(m Manifest) ([]byte, error) {
-	manifestBytes, err := borsh.Serialize(m)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize manifest: %w", err)
+// reserializeManifest re-encodes a Manifest struct to get its raw bytes
+// using the specified version layout, so that the hash matches the original wire format.
+func reserializeManifest(m Manifest, version ManifestVersion) ([]byte, error) {
+	switch version {
+	case V1:
+		// Serialize using V1 layout to preserve hash compatibility
+		v1 := ManifestV1{
+			Namespace:   m.Namespace,
+			Pivot:       PivotConfigV1{Hash: m.Pivot.Hash, Restart: m.Pivot.Restart, Args: m.Pivot.Args},
+			ManifestSet: m.ManifestSet,
+			ShareSet:    m.ShareSet,
+			Enclave:     m.Enclave,
+			PatchSet:    m.PatchSet,
+		}
+		manifestBytes, err := borsh.Serialize(v1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize v1 manifest: %w", err)
+		}
+		return manifestBytes, nil
+	default:
+		manifestBytes, err := borsh.Serialize(m)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize manifest: %w", err)
+		}
+		return manifestBytes, nil
 	}
-	return manifestBytes, nil
 }
 
 // decodeRawManifest deserializes raw manifest bytes using the specified version.
@@ -99,7 +118,7 @@ func DecodeManifestEnvelopeFromBase64(manifestB64 string, version ManifestVersio
 		return nil, nil, nil, nil, err
 	}
 
-	manifestBytes, err := reserializeManifest(env.Manifest)
+	manifestBytes, err := reserializeManifest(env.Manifest, version)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -118,7 +137,7 @@ func DecodeManifestEnvelopeFromFile(filePath string, version ManifestVersion) (*
 		return nil, nil, nil, nil, err
 	}
 
-	manifestBytes, err := reserializeManifest(env.Manifest)
+	manifestBytes, err := reserializeManifest(env.Manifest, version)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -137,7 +156,7 @@ func DecodeManifestFromBase64(manifestB64 string, version ManifestVersion) (*Man
 		return nil, nil, nil, err
 	}
 
-	manifestBytes, err := reserializeManifest(env.Manifest)
+	manifestBytes, err := reserializeManifest(env.Manifest, version)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -155,7 +174,7 @@ func DecodeManifestFromFile(filePath string, version ManifestVersion) (*Manifest
 	// Try envelope first
 	env, envErr := decodeEnvelope(data, version)
 	if envErr == nil {
-		manifestBytes, err := reserializeManifest(env.Manifest)
+		manifestBytes, err := reserializeManifest(env.Manifest, version)
 		if err != nil {
 			return nil, nil, nil, err
 		}

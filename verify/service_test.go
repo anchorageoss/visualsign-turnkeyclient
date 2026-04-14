@@ -588,7 +588,8 @@ func TestProcessManifest(t *testing.T) {
 
 	t.Run("invalid manifest b64", func(t *testing.T) {
 		response := &api.SignablePayloadResponse{
-			QosManifestB64: "!!!invalid!!!",
+			QosManifestB64:  "!!!invalid!!!",
+			ManifestVersion: manifest.V2,
 		}
 		result := &VerifyResult{}
 
@@ -600,7 +601,8 @@ func TestProcessManifest(t *testing.T) {
 	t.Run("invalid raw manifest data", func(t *testing.T) {
 		invalidB64 := base64.StdEncoding.EncodeToString([]byte{0xFF})
 		response := &api.SignablePayloadResponse{
-			QosManifestB64: invalidB64,
+			QosManifestB64:  invalidB64,
+			ManifestVersion: manifest.V2,
 		}
 		result := &VerifyResult{}
 
@@ -615,6 +617,7 @@ func TestProcessManifest(t *testing.T) {
 		response := &api.SignablePayloadResponse{
 			QosManifestB64:         invalidRawB64,
 			QosManifestEnvelopeB64: invalidEnvB64,
+			ManifestVersion:        manifest.V2,
 		}
 		result := &VerifyResult{}
 
@@ -628,6 +631,7 @@ func TestProcessManifest(t *testing.T) {
 		response := &api.SignablePayloadResponse{
 			QosManifestB64:         invalidB64,
 			QosManifestEnvelopeB64: "",
+			ManifestVersion:        manifest.V2,
 		}
 		result := &VerifyResult{}
 
