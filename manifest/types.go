@@ -166,8 +166,10 @@ type ManifestEnvelope struct {
 type ManifestVersion int
 
 const (
+	// ManifestVersionUnknown indicates that no manifest version was explicitly selected.
+	ManifestVersionUnknown ManifestVersion = iota
 	// V1 is the legacy layout (v1 API): PivotConfig has hash, restart, args only.
-	V1 ManifestVersion = iota
+	V1
 	// V2 is the current layout (v2 API): PivotConfig has hash, restart, bridge_config, debug_mode, args.
 	V2
 )

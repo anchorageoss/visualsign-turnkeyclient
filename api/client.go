@@ -91,6 +91,13 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		apiVersion = "v2"
 	}
 
+	switch apiVersion {
+	case "v1", "v2":
+		// supported versions
+	default:
+		return nil, fmt.Errorf("unsupported visualsign API version: %q (must be \"v1\" or \"v2\")", apiVersion)
+	}
+
 	// Create and stamp the request
 	url := fmt.Sprintf("%s/visualsign/api/%s/parse", c.HostURI, apiVersion)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqJSON))

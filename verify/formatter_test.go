@@ -430,7 +430,8 @@ func TestFormatVerificationResult_WithPCRValidations(t *testing.T) {
 
 	validations, ok := formatted["pcrValidations"]
 	require.True(t, ok)
-	valSlice := validations.([]map[string]interface{})
+	valSlice, ok2 := validations.([]map[string]interface{})
+	require.True(t, ok2, "pcrValidations should be []map[string]interface{}")
 	require.Len(t, valSlice, 1)
 	require.Equal(t, uint(0), valSlice[0]["index"])
 	require.Equal(t, true, valSlice[0]["valid"])
