@@ -175,7 +175,7 @@ func TestDecodeManifestEnvelopeFromBase64(t *testing.T) {
 	})
 }
 
-// Test with actual embedded testdata (v2 envelope)
+// Test with actual embedded testdata (v2 envelope fixture)
 func TestDecodeActualManifest(t *testing.T) {
 	envelopeBytes := testdata.ManifestBin
 	envelopeB64 := base64.StdEncoding.EncodeToString(envelopeBytes)

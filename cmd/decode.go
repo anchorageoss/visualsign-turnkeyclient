@@ -20,7 +20,7 @@ func apiVersionToManifestVersion(apiVersion string) (manifest.ManifestVersion, e
 	case "v2":
 		return manifest.V2, nil
 	default:
-		return 0, fmt.Errorf("unsupported api-version %q, must be \"v1\" or \"v2\"", apiVersion)
+		return 0, fmt.Errorf("unsupported --api-version %q: must be \"v1\" or \"v2\"", apiVersion)
 	}
 }
 

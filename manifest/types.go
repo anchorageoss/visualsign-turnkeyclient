@@ -18,7 +18,7 @@
 //
 // Decode manifests using DecodeRawManifestFromBase64 or DecodeManifestEnvelopeFromFile:
 //
-//	manifest, manifestBytes, err := manifest.DecodeRawManifestFromBase64(base64String)
+//	manifest, manifestBytes, err := manifest.DecodeRawManifestFromBase64(base64String, manifest.V2)
 //	if err != nil {
 //		log.Fatal(err)
 //	}

@@ -97,16 +97,17 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 	// Create API client
 	httpClient := &http.Client{}
 	keyProvider := &keys.FileKeyProvider{KeyName: keyName}
+	// Validate api-version flag before doing any expensive work
+	apiVersion := cmd.String("api-version")
+	if _, err := apiVersionToManifestVersion(apiVersion); err != nil {
+		return err
+	}
+
 	apiClient, err := api.NewClient(hostURI, httpClient, organizationID, keyProvider)
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
-	if apiVersion := cmd.String("api-version"); apiVersion != "" {
-		if apiVersion != "v1" && apiVersion != "v2" {
-			return fmt.Errorf("unsupported api-version %q, must be \"v1\" or \"v2\"", apiVersion)
-		}
-		apiClient.VisualSignAPIVersion = apiVersion
-	}
+	apiClient.VisualSignAPIVersion = apiVersion
 
 	// Create attestation verifier
 	verifier := nitroverifier.NewVerifier(nitroverifier.AWSNitroVerifierOptions{

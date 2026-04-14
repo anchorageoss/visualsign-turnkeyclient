@@ -175,7 +175,7 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	result.Valid = true
 
 	// Step 5: Decode QoS Manifest if available
-	if response.QosManifestB64 != "" {
+	if response.QosManifestB64 != "" || response.QosManifestEnvelopeB64 != "" {
 		if err := s.processManifest(response, validationResult.Document.UserData, result); err != nil {
 			return nil, err
 		}

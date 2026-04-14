@@ -85,11 +85,13 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		return nil, fmt.Errorf("failed to marshal visualsign request: %w", err)
 	}
 
-	// Create and stamp the request
+	// Default to v2 if not set (e.g., direct struct construction without NewClient)
 	apiVersion := c.VisualSignAPIVersion
 	if apiVersion == "" {
 		apiVersion = "v2"
 	}
+
+	// Create and stamp the request
 	url := fmt.Sprintf("%s/visualsign/api/%s/parse", c.HostURI, apiVersion)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqJSON))
 	if err != nil {
@@ -176,7 +178,7 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 
 	// Map API version string to manifest version
 	mv := manifest.V2
-	if c.VisualSignAPIVersion == "v1" {
+	if apiVersion == "v1" {
 		mv = manifest.V1
 	}
 

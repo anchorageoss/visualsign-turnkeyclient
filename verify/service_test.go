@@ -644,8 +644,8 @@ func TestProcessManifest(t *testing.T) {
 		require.NoError(t, err)
 
 		response := &api.SignablePayloadResponse{
-			QosManifestB64:  manifestB64,
-			ManifestVersion: manifest.V2,
+			QosManifestEnvelopeB64: manifestB64,
+			ManifestVersion:        manifest.V2,
 		}
 
 		result := &VerifyResult{}
@@ -658,8 +658,9 @@ func TestProcessManifest(t *testing.T) {
 
 		require.NotEmpty(t, result.Manifest.Namespace.Name)
 		require.NotNil(t, result.Manifest.Pivot)
-		require.Equal(t, manifestHash, result.ManifestReserialization.RawManifestHash)
-		require.Equal(t, manifestHash, result.ManifestReserialization.ReserializedManifestHash)
+
+		// Additional validation: envelope hash matches since we're using envelope data
+		require.Equal(t, manifestHash, result.ManifestReserialization.EnvelopeHash)
 	})
 
 	t.Run("manifest envelope from embedded testdata", func(t *testing.T) {

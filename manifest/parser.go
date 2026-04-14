@@ -29,7 +29,7 @@ func decodeRawManifest(data []byte, version ManifestVersion) (*Manifest, error) 
 	case V1:
 		var v0 ManifestV1
 		if err := borsh.Deserialize(&v0, data); err != nil {
-			return nil, fmt.Errorf("failed to deserialize v1 raw manifest: %w", err)
+			return nil, fmt.Errorf("failed to deserialize v1 (legacy) raw manifest: %w", err)
 		}
 		m := v0.ToManifest()
 		return &m, nil
@@ -50,7 +50,7 @@ func decodeEnvelope(data []byte, version ManifestVersion) (*ManifestEnvelope, er
 	case V1:
 		var v0 ManifestEnvelopeV1
 		if err := borsh.Deserialize(&v0, data); err != nil {
-			return nil, fmt.Errorf("failed to deserialize v0 manifest envelope: %w", err)
+			return nil, fmt.Errorf("failed to deserialize v1 (legacy) manifest envelope: %w", err)
 		}
 		env := v0.ToManifestEnvelope()
 		return &env, nil
