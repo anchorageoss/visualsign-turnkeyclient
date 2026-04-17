@@ -84,6 +84,8 @@ func TestMainApp(t *testing.T) {
 	})
 }
 
+// TestVersionFlag verifies --version is wired through to version.String().
+// Build-time ldflags injection is validated separately by the CI smoke test.
 func TestVersionFlag(t *testing.T) {
 	var buf bytes.Buffer
 

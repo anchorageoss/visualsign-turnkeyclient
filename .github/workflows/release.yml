@@ -7,8 +7,9 @@ on:
     inputs:
       dry_run:
         description: 'Dry run (skip actual release)'
+        type: boolean
         required: false
-        default: 'false'
+        default: false
 
 concurrency:
   group: release
@@ -50,33 +51,61 @@ jobs:
           echo "Version: $FULL_VERSION"
           echo "Tag: $TAG"
 
-      - name: Check if tag already exists
+      - name: Check tag and release state
         id: check_tag
         env:
           TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git fetch --tags origin
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Tag $TAG already exists, skipping release"
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
           fi
+          # Distinguish "release not found" (404) from transient API errors so
+          # we don't silently treat auth/rate-limit failures as "missing release"
+          # and accidentally re-run goreleaser against an existing release.
+          RELEASE_ERR=$(mktemp)
+          if gh release view "$TAG" >/dev/null 2>"$RELEASE_ERR"; then
+            echo "release_exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG and its release both exist, skipping release."
+          elif grep -qiE 'release not found|not found|HTTP 404' "$RELEASE_ERR"; then
+            echo "release_exists=false" >> $GITHUB_OUTPUT
+            if git rev-parse "$TAG" >/dev/null 2>&1; then
+              echo "Tag $TAG exists without a release — will retry goreleaser."
+            fi
+          else
+            echo "ERROR: gh release view failed for unexpected reason:" >&2
+            cat "$RELEASE_ERR" >&2
+            rm -f "$RELEASE_ERR"
+            exit 1
+          fi
+          rm -f "$RELEASE_ERR"
 
       - name: Run tests
         run: make test
 
       - name: Create tag
-        if: steps.check_tag.outputs.exists == 'false' && github.event.inputs.dry_run != 'true'
+        if: steps.check_tag.outputs.tag_exists == 'false' && inputs.dry_run != true
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           git tag "$TAG"
           git push origin "$TAG" 2>&1 || {
-            # If push fails, check if tag was created by a concurrent run
+            # If push fails, check if tag was created by a concurrent run AND
+            # that it points at our HEAD. If it points elsewhere, the two runs
+            # computed the same version for different commits — fail loudly
+            # rather than release a binary that doesn't match the tag.
             git fetch --tags origin
             if git rev-parse "$TAG" >/dev/null 2>&1; then
-              echo "Tag $TAG was already pushed by a concurrent run, skipping."
+              TAG_COMMIT=$(git rev-parse "$TAG^{commit}")
+              HEAD_COMMIT=$(git rev-parse HEAD)
+              if [ "$TAG_COMMIT" != "$HEAD_COMMIT" ]; then
+                echo "ERROR: Tag $TAG exists on remote but points to $TAG_COMMIT, not HEAD ($HEAD_COMMIT)"
+                exit 1
+              fi
+              echo "Tag $TAG was already pushed by a concurrent run at the same commit, continuing."
             else
               echo "ERROR: Failed to push tag $TAG"
               exit 1
@@ -84,7 +113,7 @@ jobs:
           }
 
       - name: Dry run summary
-        if: github.event.inputs.dry_run == 'true'
+        if: inputs.dry_run == true
         env:
           TAG: ${{ steps.version.outputs.tag }}
           FULL_VERSION: ${{ steps.version.outputs.full_version }}
@@ -92,7 +121,7 @@ jobs:
           echo "DRY RUN: would have created tag $TAG (version: $FULL_VERSION)"
 
       - name: Run goreleaser
-        if: steps.check_tag.outputs.exists == 'false' && github.event.inputs.dry_run != 'true'
+        if: steps.check_tag.outputs.release_exists == 'false' && inputs.dry_run != true
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with:
           distribution: goreleaser

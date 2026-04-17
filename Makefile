@@ -5,11 +5,13 @@ PORT ?= :3000
 # Verbose test output
 VERBOSE ?= false
 
-# Version info injected at build time
-VERSION := $(shell scripts/auto-version.sh 2>/dev/null || echo "dev")
-COMMIT  := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo "none")
-LDFLAGS := -X github.com/anchorageoss/visualsign-turnkeyclient/version.Version=$(VERSION) \
-            -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit=$(COMMIT)
+# Version info injected at build time. Recursive assignment (`=`) so the shell
+# commands only run when LDFLAGS is actually referenced (by `build`), not on
+# every make invocation (e.g. `make help`, `make fmt`, `make clean`).
+VERSION = $(shell scripts/auto-version.sh 2>/dev/null || echo "dev")
+COMMIT  = $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo "none")
+LDFLAGS = -X github.com/anchorageoss/visualsign-turnkeyclient/version.Version=$(VERSION) \
+           -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit=$(COMMIT)
 
 help:
 	@echo "Available targets:"

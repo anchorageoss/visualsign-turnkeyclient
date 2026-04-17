@@ -36,7 +36,7 @@ jobs:
         run: make test 2>&1 | tee test-output.txt
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@ab904c41d6ece82784817410c45d8b8341f9d71b # v3.1.6
+        uses: codecov/codecov-action@ab904c41d6ece82784817410c45d8b8c02684457 # v3
         with:
           files: ./coverage.out
           flags: unittests
@@ -88,6 +88,10 @@ jobs:
         run: |
           VERSION_OUTPUT=$(./bin/visualsign-turnkeyclient --version)
           echo "$VERSION_OUTPUT"
+          # Detect either default leaking through: Version=dev or Commit=none.
+          # The `^` anchor only applies to the first alternative (Version=dev);
+          # the second alternative matches the literal "commit: none" substring
+          # that only appears when Commit was not injected.
           if echo "$VERSION_OUTPUT" | grep -qE '^dev \(commit:|commit: none'; then
             echo "ERROR: Version output contains default values — ldflags injection may have failed"
             exit 1

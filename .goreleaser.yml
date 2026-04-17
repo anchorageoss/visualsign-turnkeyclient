@@ -4,7 +4,8 @@ project_name: visualsign-turnkeyclient
 
 before:
   hooks:
-    - go mod download && go mod verify
+    - go mod download
+    - go mod verify
 
 builds:
   - main: .
@@ -13,6 +14,8 @@ builds:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
+      # .Version is the tag without the leading "v" (e.g. "0.56.0"); release binaries
+      # intentionally omit the "+branch-hash" metadata that local make builds include.
       - -X github.com/anchorageoss/visualsign-turnkeyclient/version.Version={{.Version}}
       - -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit={{ .Env.COMMIT_HASH }}
     goos:
@@ -23,11 +26,11 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
-  name_template: checksums.txt
+  name_template: "checksums_{{ .Version }}.txt"
 
 changelog:
   sort: asc
