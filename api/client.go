@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/crypto"
+	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 )
 
 // HTTPClient interface for dependency injection
@@ -25,10 +26,11 @@ type KeyProvider interface {
 
 // Client implements the Turnkey API client
 type Client struct {
-	HostURI        string
-	HTTPClient     HTTPClient
-	APIKey         *TurnkeyAPIKey
-	APIKeyProvider KeyProvider
+	HostURI              string
+	HTTPClient           HTTPClient
+	APIKey               *TurnkeyAPIKey
+	APIKeyProvider       KeyProvider
+	VisualSignAPIVersion string
 }
 
 // NewClient creates a new Turnkey API client with key provider
@@ -41,10 +43,11 @@ func NewClient(hostURI string, httpClient HTTPClient, organizationID string, pro
 	apiKey.OrganizationID = organizationID
 
 	return &Client{
-		HostURI:        hostURI,
-		HTTPClient:     httpClient,
-		APIKey:         apiKey,
-		APIKeyProvider: provider,
+		HostURI:              hostURI,
+		HTTPClient:           httpClient,
+		APIKey:               apiKey,
+		APIKeyProvider:       provider,
+		VisualSignAPIVersion: "v2",
 	}, nil
 }
 
@@ -82,8 +85,21 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		return nil, fmt.Errorf("failed to marshal visualsign request: %w", err)
 	}
 
+	// Default to v2 if not set (e.g., direct struct construction without NewClient)
+	apiVersion := c.VisualSignAPIVersion
+	if apiVersion == "" {
+		apiVersion = "v2"
+	}
+
+	switch apiVersion {
+	case "v1", "v2":
+		// supported versions
+	default:
+		return nil, fmt.Errorf("unsupported visualsign API version: %q (must be \"v1\" or \"v2\")", apiVersion)
+	}
+
 	// Create and stamp the request
-	url := fmt.Sprintf("%s/visualsign/api/v1/parse", c.HostURI)
+	url := fmt.Sprintf("%s/visualsign/api/%s/parse", c.HostURI, apiVersion)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
@@ -167,9 +183,19 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		deploymentLabel = turnkeyResp.BootProof.DeploymentLabel
 	}
 
+	// Map API version string to manifest version
+	mv := manifest.V2
+	if apiVersion == "v1" {
+		mv = manifest.V1
+	}
+
 	return &SignablePayloadResponse{
 		SignablePayload:                  signablePayloadString,
+		ParsedPayload:                    turnkeyResp.Response.ParsedTransaction.Payload.ParsedPayload,
+		InputPayloadDigest:               turnkeyResp.Response.ParsedTransaction.Payload.InputPayloadDigest,
+		MetadataDigest:                   turnkeyResp.Response.ParsedTransaction.Payload.MetadataDigest,
 		TurnkeySerializedSignablePayload: signablePayloadString,
+		ManifestVersion:                  mv,
 		Attestations:                     attestations,
 		QosManifestB64:                   qosManifestB64,
 		QosManifestEnvelopeB64:           qosManifestEnvelopeB64,

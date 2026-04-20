@@ -11,6 +11,19 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// apiVersionToManifestVersion maps the CLI --api-version flag to a ManifestVersion.
+// Returns an error for unsupported values.
+func apiVersionToManifestVersion(apiVersion string) (manifest.ManifestVersion, error) {
+	switch apiVersion {
+	case "v1":
+		return manifest.V1, nil
+	case "v2":
+		return manifest.V2, nil
+	default:
+		return 0, fmt.Errorf("unsupported --api-version %q: must be \"v1\" or \"v2\"", apiVersion)
+	}
+}
+
 // DecodeCommand creates the decode commands
 func DecodeCommand() *cli.Command {
 	return &cli.Command{
@@ -40,6 +53,11 @@ func decodeRawManifestCommand() *cli.Command {
 				Name:  "json",
 				Usage: "Output in JSON format",
 			},
+			&cli.StringFlag{
+				Name:  "api-version",
+				Usage: "Manifest format version (v1 or v2)",
+				Value: "v2",
+			},
 		},
 		Action: runDecodeRawManifestCommand,
 	}
@@ -57,21 +75,24 @@ func runDecodeRawManifestCommand(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("only one of --file or --base64 should be provided")
 	}
 
+	mv, err := apiVersionToManifestVersion(cmd.String("api-version"))
+	if err != nil {
+		return err
+	}
+
 	var m *manifest.Manifest
 	var manifestBytes []byte
-	var err error
 
 	if filePath != "" {
-		m, manifestBytes, err = manifest.DecodeRawManifestFromFile(filePath)
+		m, manifestBytes, err = manifest.DecodeRawManifestFromFile(filePath, mv)
 	} else {
-		m, manifestBytes, err = manifest.DecodeRawManifestFromBase64(b64)
+		m, manifestBytes, err = manifest.DecodeRawManifestFromBase64(b64, mv)
 	}
 
 	if err != nil {
 		return fmt.Errorf("failed to decode raw manifest: %w", err)
 	}
 
-	// Compute manifest hash
 	manifestHash := manifest.ComputeHash(manifestBytes)
 
 	if asJSON {
@@ -114,6 +135,11 @@ func decodeManifestEnvelopeCommand() *cli.Command {
 				Name:  "json",
 				Usage: "Output in JSON format",
 			},
+			&cli.StringFlag{
+				Name:  "api-version",
+				Usage: "Manifest format version (v1 or v2)",
+				Value: "v2",
+			},
 		},
 		Action: runDecodeManifestEnvelopeCommand,
 	}
@@ -131,14 +157,18 @@ func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) err
 		return fmt.Errorf("only one of --file or --base64 should be provided")
 	}
 
+	mv, err := apiVersionToManifestVersion(cmd.String("api-version"))
+	if err != nil {
+		return err
+	}
+
 	var envelope *manifest.ManifestEnvelope
 	var manifestBytes, envelopeBytes []byte
-	var err error
 
 	if filePath != "" {
-		envelope, _, manifestBytes, envelopeBytes, err = manifest.DecodeManifestEnvelopeFromFile(filePath)
+		envelope, _, manifestBytes, envelopeBytes, err = manifest.DecodeManifestEnvelopeFromFile(filePath, mv)
 	} else {
-		envelope, _, manifestBytes, envelopeBytes, err = manifest.DecodeManifestEnvelopeFromBase64(b64)
+		envelope, _, manifestBytes, envelopeBytes, err = manifest.DecodeManifestEnvelopeFromBase64(b64, mv)
 	}
 
 	if err != nil {

@@ -3,6 +3,7 @@ package cmd
 import (
 	"testing"
 
+	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 )
@@ -20,7 +21,7 @@ func TestDecodeRawManifestCommand(t *testing.T) {
 
 	require.NotNil(t, cmd)
 	require.Equal(t, "raw", cmd.Name)
-	require.Len(t, cmd.Flags, 3)
+	require.Len(t, cmd.Flags, 4)
 
 	// Verify flags
 	var hasFile, hasBase64, hasJSON bool
@@ -52,7 +53,7 @@ func TestDecodeManifestEnvelopeCommand(t *testing.T) {
 	require.Equal(t, "envelope", cmd.Name)
 
 	// Check flags exist
-	require.Len(t, cmd.Flags, 3)
+	require.Len(t, cmd.Flags, 4)
 }
 
 func TestDecodeRawManifestFlags(t *testing.T) {
@@ -60,5 +61,22 @@ func TestDecodeRawManifestFlags(t *testing.T) {
 
 	require.NotNil(t, cmd)
 	require.Equal(t, "raw", cmd.Name)
-	require.Len(t, cmd.Flags, 3) // --file, --base64, --json
+	require.Len(t, cmd.Flags, 4) // --file, --base64, --json, --api-version
+}
+
+func TestApiVersionToManifestVersion(t *testing.T) {
+	v, err := apiVersionToManifestVersion("v1")
+	require.NoError(t, err)
+	require.Equal(t, manifest.V1, v)
+
+	v, err = apiVersionToManifestVersion("v2")
+	require.NoError(t, err)
+	require.Equal(t, manifest.V2, v)
+
+	_, err = apiVersionToManifestVersion("")
+	require.Error(t, err)
+
+	_, err = apiVersionToManifestVersion("v3")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported --api-version")
 }
