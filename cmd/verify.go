@@ -139,6 +139,20 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 	fmt.Fprintf(os.Stderr, "✓ Public key: %s\n", result.PublicKeyHex)
 	fmt.Fprintf(os.Stderr, "✓ Signature: %s\n", result.SignatureHex)
 
+	if result.InputPayloadDigest != "" || result.MetadataDigest != "" {
+		fmt.Fprintf(os.Stderr, "\n=== Payload Digests ===\n")
+		if result.InputPayloadDigest != "" {
+			fmt.Fprintf(os.Stderr, "✓ inputPayloadDigest verified: %s\n", result.InputPayloadDigest)
+		} else {
+			fmt.Fprintf(os.Stderr, "⚠ inputPayloadDigest: (not provided by backend)\n")
+		}
+		if result.MetadataDigest != "" {
+			fmt.Fprintf(os.Stderr, "✓ metadataDigest verified:     %s\n", result.MetadataDigest)
+		} else {
+			fmt.Fprintf(os.Stderr, "⚠ metadataDigest:     (not provided by backend)\n")
+		}
+	}
+
 	fmt.Fprintf(os.Stderr, "\n=== STEP 2: Verify Attestation Document ===\n")
 	fmt.Fprintf(os.Stderr, "✓ Attestation document verified successfully\n")
 	fmt.Fprintf(os.Stderr, "✓ Module ID: %s\n", result.ModuleID)

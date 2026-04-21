@@ -60,6 +60,8 @@ type VerifyResult struct {
 	ModuleID                string                      `json:"moduleId"`
 	PublicKeyHex            string                      `json:"publicKey"`
 	SignablePayload         string                      `json:"signablePayload"`
+	InputPayloadDigest      string                      `json:"inputPayloadDigest,omitempty"`
+	MetadataDigest          string                      `json:"metadataDigest,omitempty"`
 	MessageHex              string                      `json:"message"`
 	SignatureHex            string                      `json:"signature"`
 	QosManifestHash         string                      `json:"qosManifest,omitempty"`
