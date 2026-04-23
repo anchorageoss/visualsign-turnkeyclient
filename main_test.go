@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anchorageoss/visualsign-turnkeyclient/version"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 )
@@ -81,6 +82,25 @@ func TestMainApp(t *testing.T) {
 		require.True(t, commandNames["attestation"])
 		require.False(t, commandNames["invalid-command"])
 	})
+}
+
+// TestVersionFlag verifies --version is wired through to version.String().
+// Build-time ldflags injection is validated separately by the CI smoke test.
+func TestVersionFlag(t *testing.T) {
+	var buf bytes.Buffer
+
+	app := &cli.Command{
+		Name:    "turnkey-client",
+		Usage:   "Turnkey Visualsign Client",
+		Version: version.String(),
+		Writer:  &buf,
+	}
+
+	err := app.Run(context.Background(), []string{"turnkey-client", "--version"})
+	require.NoError(t, err)
+
+	output := buf.String()
+	require.Regexp(t, `\S+ \(commit: \S+\)`, output)
 }
 
 // TestMainCommands verifies that all commands are properly registered

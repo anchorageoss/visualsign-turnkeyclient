@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
@@ -34,7 +36,7 @@ jobs:
         run: make test 2>&1 | tee test-output.txt
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@ab904c41d6ece82784817410c45d8b8c02684457 # v3
         with:
           files: ./coverage.out
           flags: unittests
@@ -47,7 +49,7 @@ jobs:
 
       - name: Upload coverage report artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: coverage-report
           path: coverage.html
@@ -81,6 +83,23 @@ jobs:
 
       - name: Build
         run: make build
+
+      - name: Smoke test version command
+        run: |
+          VERSION_OUTPUT=$(./bin/visualsign-turnkeyclient --version)
+          echo "$VERSION_OUTPUT"
+          # Detect either default leaking through: Version=dev or Commit=none.
+          # The `^` anchor only applies to the first alternative (Version=dev);
+          # the second alternative matches the literal "commit: none" substring
+          # that only appears when Commit was not injected.
+          if echo "$VERSION_OUTPUT" | grep -qE '^dev \(commit:|commit: none'; then
+            echo "ERROR: Version output contains default values — ldflags injection may have failed"
+            exit 1
+          fi
+          if ! echo "$VERSION_OUTPUT" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+.*\(commit: [0-9a-f]+\)'; then
+            echo "ERROR: Version output does not match expected format: N.N.N (commit: hex)"
+            exit 1
+          fi
 
       - name: Upload binary
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0

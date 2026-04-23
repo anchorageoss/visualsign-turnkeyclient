@@ -6,13 +6,15 @@ import (
 	"os"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/cmd"
+	"github.com/anchorageoss/visualsign-turnkeyclient/version"
 	"github.com/urfave/cli/v3"
 )
 
 func main() {
 	app := &cli.Command{
-		Name:  "turnkey-client",
-		Usage: "Turnkey Visualsign Client",
+		Name:    "turnkey-client",
+		Usage:   "Turnkey Visualsign Client",
+		Version: version.String(),
 		Commands: []*cli.Command{
 			cmd.ParseCommand(),
 			cmd.VerifyCommand(),

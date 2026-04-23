@@ -1,9 +1,17 @@
-.PHONY: test test-coverage test-cover build clean help lint fmt
+.PHONY: test test-coverage test-coverage-serve build clean help lint fmt test-strict test-manifest test-crypto test-apikey test-client bench bench-verbose check-deps
 
 # Default port for coverage server
 PORT ?= :3000
 # Verbose test output
 VERBOSE ?= false
+
+# Version info injected at build time. Recursive assignment (`=`) so the shell
+# commands only run when LDFLAGS is actually referenced (by `build`), not on
+# every make invocation (e.g. `make help`, `make fmt`, `make clean`).
+VERSION = $(shell scripts/auto-version.sh 2>/dev/null || echo "dev")
+COMMIT  = $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo "none")
+LDFLAGS = -X github.com/anchorageoss/visualsign-turnkeyclient/version.Version=$(VERSION) \
+           -X github.com/anchorageoss/visualsign-turnkeyclient/version.Commit=$(COMMIT)
 
 help:
 	@echo "Available targets:"
@@ -11,7 +19,7 @@ help:
 	@echo "                           		Usage: make test VERBOSE=true"
 	@echo "  make test-coverage     	- Run tests and generate coverage report (HTML)"
 	@echo "  make test-coverage-serve       - Run tests, serve coverage on PORT (default :3000)"
-	@echo "                           		Usage: make test-cover PORT=:8080"
+	@echo "                           		Usage: make test-coverage-serve PORT=:8080"
 	@echo "  make build             	- Build the application"
 	@echo "  make clean             	- Remove build artifacts and test coverage files"
 	@echo "  make fmt               	- Format Go code with gofmt"
@@ -22,7 +30,7 @@ test:
 ifeq ($(VERBOSE),true)
 	go test -v -race -coverprofile=coverage.out ./... -count=1
 else
-	go test -v -race -coverprofile=coverage.out ./... -count=1
+	go test -race -coverprofile=coverage.out ./... -count=1
 endif
 	@echo ""
 	@echo "Filtering out cmd package from coverage (will be covered by integration tests)..."
@@ -64,7 +72,7 @@ test-coverage-serve: test
 	fi
 
 build: bin/
-	CGO_ENABLED=0 go build -o bin/visualsign-turnkeyclient .
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/visualsign-turnkeyclient .
 
 bin/:
 	mkdir -p bin

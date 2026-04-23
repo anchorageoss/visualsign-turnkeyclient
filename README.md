@@ -80,6 +80,18 @@ The CI workflow runs on every push and pull request:
 - ✅ Build verification
 - 📊 Coverage reports uploaded to artifacts
 
+### Releasing
+
+Releases are automated via goreleaser and triggered on every push to `main`. Versions are computed automatically from git commit history using `scripts/auto-version.sh` (no manual tagging required).
+
+The release workflow will:
+1. Compute the version from commit count (tag: `v0.<height>.0`, release binary: `0.<height>.0`, local/CI build: `0.<height>.0+<branch>-<hash>`)
+2. Create and push the git tag if it does not already exist
+3. Run goreleaser unless a GitHub Release already exists for that tag (if only the tag exists — e.g., a previous run crashed after tagging — goreleaser will retry)
+4. Build and publish cross-platform binaries to GitHub Releases
+
+Releases can also be triggered manually via `workflow_dispatch` (with an optional dry-run mode).
+
 ## Commands
 
 ### Parse Command
@@ -612,7 +624,7 @@ make test
 make test-coverage
 
 # Run tests and serve coverage interactively
-make test-cover
+make test-coverage-serve
 ```
 
 ### Building
