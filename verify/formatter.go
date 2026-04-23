@@ -226,6 +226,14 @@ func (f *Formatter) FormatVerificationResult(result *VerifyResult) map[string]in
 		output["pivotBinaryHash"] = result.PivotBinaryHash
 	}
 
+	if result.InputPayloadDigest != "" {
+		output["inputPayloadDigest"] = result.InputPayloadDigest
+	}
+
+	if result.MetadataDigest != "" {
+		output["metadataDigest"] = result.MetadataDigest
+	}
+
 	if result.PCR4 != "" {
 		output["pcr4"] = result.PCR4
 	}

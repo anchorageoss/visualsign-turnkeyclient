@@ -87,6 +87,26 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	result.MessageHex = appAttestation.Message
 	result.SignatureHex = appAttestation.Signature
 	result.SignablePayload = response.SignablePayload
+	result.InputPayloadDigest = response.InputPayloadDigest
+	result.MetadataDigest = response.MetadataDigest
+
+	// Recompute digests locally to confirm the backend-reported values match
+	// our inputs. See visualsign-parser's src/parser/app/src/routes/parse.rs:
+	//   input_payload_digest = sha256(unsigned_payload_string_bytes)
+	//   metadata_digest      = sha256(borsh_encode(chain_metadata))
+	// This client does not send chain_metadata, so the expected metadata
+	// digest is the SHA-256 of an empty byte slice.
+	if response.InputPayloadDigest != "" {
+		computed := manifest.ComputeHash([]byte(req.UnsignedPayload))
+		if computed != response.InputPayloadDigest {
+			return nil, fmt.Errorf("inputPayloadDigest mismatch: backend reported %s, computed %s",
+				response.InputPayloadDigest, computed)
+		}
+	}
+	if response.MetadataDigest != "" && response.MetadataDigest != emptyMetadataDigestHex {
+		return nil, fmt.Errorf("metadataDigest mismatch: backend reported %s, expected %s (client sends no chain_metadata)",
+			response.MetadataDigest, emptyMetadataDigestHex)
+	}
 
 	bootAttestationDocBytes, err := base64.StdEncoding.DecodeString(bootAttestationDoc)
 	if err != nil {
@@ -373,3 +393,7 @@ type AppAttestation struct {
 	Scheme    string `json:"scheme"`
 	Signature string `json:"signature"`
 }
+
+// emptyMetadataDigestHex is SHA-256(""), the digest the visualsign parser
+// produces when no chain_metadata is supplied (Borsh-encoded empty vec).
+const emptyMetadataDigestHex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
