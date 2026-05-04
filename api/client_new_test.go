@@ -289,6 +289,59 @@ func TestCreateSignablePayload(t *testing.T) {
 	})
 }
 
+// TestCreateSignablePayload_PathPrefix verifies that UseDevPath toggles the
+// outbound URL between "/visualsign" and "/visualsign-dev" while leaving
+// other request properties unchanged.
+func TestCreateSignablePayload_PathPrefix(t *testing.T) {
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	makeMockResp := func() *http.Response {
+		response := TurnkeyVisualSignResponse{}
+		response.Response.ParsedTransaction.Payload.SignablePayload = "ok"
+		body, _ := json.Marshal(response)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(body)),
+		}
+	}
+
+	cases := []struct {
+		name       string
+		useDevPath bool
+		wantPath   string
+	}{
+		{name: "default uses /visualsign", useDevPath: false, wantPath: "/visualsign/api/v2/parse"},
+		{name: "UseDevPath uses /visualsign-dev", useDevPath: true, wantPath: "/visualsign-dev/api/v2/parse"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &mockHTTPClient{response: makeMockResp()}
+			client := &Client{
+				HostURI:              "https://api.turnkey.com",
+				HTTPClient:           mockClient,
+				VisualSignAPIVersion: "v2",
+				UseDevPath:           tc.useDevPath,
+				APIKey: &TurnkeyAPIKey{
+					PublicKey:      "test-public-key",
+					PrivateKey:     privKey,
+					OrganizationID: "test-org",
+				},
+			}
+
+			_, err := client.CreateSignablePayload(context.Background(), &CreateSignablePayloadRequest{
+				UnsignedPayload: "p",
+				Chain:           "c",
+			})
+			require.NoError(t, err)
+			require.NotNil(t, mockClient.lastRequest)
+			require.Equal(t, tc.wantPath, mockClient.lastRequest.URL.Path)
+			require.Equal(t, "api.turnkey.com", mockClient.lastRequest.URL.Host)
+		})
+	}
+}
+
 // TestGetBootAttestation tests the GetBootAttestation function
 func TestGetBootAttestation(t *testing.T) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
