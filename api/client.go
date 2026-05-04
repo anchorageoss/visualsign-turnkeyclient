@@ -31,6 +31,10 @@ type Client struct {
 	APIKey               *TurnkeyAPIKey
 	APIKeyProvider       KeyProvider
 	VisualSignAPIVersion string
+	// UseDevPath, when true, routes requests to "/visualsign-dev/api/<version>/parse"
+	// instead of the canonical "/visualsign/api/<version>/parse". Use during
+	// production-readiness testing of the parser deployed under the dev path.
+	UseDevPath bool
 }
 
 // NewClient creates a new Turnkey API client with key provider
@@ -99,7 +103,11 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	}
 
 	// Create and stamp the request
-	url := fmt.Sprintf("%s/visualsign/api/%s/parse", c.HostURI, apiVersion)
+	pathPrefix := "/visualsign"
+	if c.UseDevPath {
+		pathPrefix = "/visualsign-dev"
+	}
+	url := fmt.Sprintf("%s%s/api/%s/parse", c.HostURI, pathPrefix, apiVersion)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
