@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"os"
 
@@ -58,6 +59,7 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	apiReq := &api.CreateSignablePayloadRequest{
 		UnsignedPayload: req.UnsignedPayload,
 		Chain:           chain,
+		ChainMetadata:   req.ChainMetadata,
 	}
 
 	response, err := s.apiClient.CreateSignablePayload(ctx, apiReq)
@@ -103,9 +105,8 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 				response.InputPayloadDigest, computed)
 		}
 	}
-	if response.MetadataDigest != "" && response.MetadataDigest != emptyMetadataDigestHex {
-		return nil, fmt.Errorf("metadataDigest mismatch: backend reported %s, expected %s (client sends no chain_metadata)",
-			response.MetadataDigest, emptyMetadataDigestHex)
+	if err := checkMetadataDigest(response.MetadataDigest, apiReq.ChainMetadata != nil); err != nil {
+		return nil, err
 	}
 
 	bootAttestationDocBytes, err := base64.StdEncoding.DecodeString(bootAttestationDoc)
@@ -397,3 +398,19 @@ type AppAttestation struct {
 // emptyMetadataDigestHex is SHA-256(""), the digest the visualsign parser
 // produces when no chain_metadata is supplied (Borsh-encoded empty vec).
 const emptyMetadataDigestHex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+// checkMetadataDigest validates the metadataDigest from the backend.
+// When chainMetadataSent is true the assertion is skipped because the backend
+// returns SHA-256(Borsh(chain_metadata)) instead of SHA-256(""); full Borsh
+// round-trip verification is a follow-up.
+func checkMetadataDigest(digest string, chainMetadataSent bool) error {
+	if digest == "" || digest == emptyMetadataDigestHex {
+		return nil
+	}
+	if chainMetadataSent {
+		log.Printf("WARN: skipping metadataDigest assertion (chain_metadata was sent, Borsh verification is a follow-up): %s", digest)
+		return nil
+	}
+	return fmt.Errorf("metadataDigest mismatch: backend reported %s, expected %s (client sends no chain_metadata)",
+		digest, emptyMetadataDigestHex)
+}

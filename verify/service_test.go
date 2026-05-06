@@ -689,3 +689,37 @@ func TestProcessManifest(t *testing.T) {
 		require.NotEmpty(t, result.Manifest.Namespace.Name)
 	})
 }
+
+// TestCheckMetadataDigest verifies the metadataDigest assertion rules:
+// - no chain_metadata sent + digest matches empty SHA-256 → no error
+// - no chain_metadata sent + digest is unexpected value → error
+// - chain_metadata sent + any digest → no error (Borsh verification is a follow-up)
+func TestCheckMetadataDigest(t *testing.T) {
+	const emptyDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+	t.Run("no chain_metadata, empty digest: ok", func(t *testing.T) {
+		err := checkMetadataDigest("", false)
+		require.NoError(t, err)
+	})
+
+	t.Run("no chain_metadata, digest matches empty SHA-256: ok", func(t *testing.T) {
+		err := checkMetadataDigest(emptyDigest, false)
+		require.NoError(t, err)
+	})
+
+	t.Run("no chain_metadata, unexpected digest: error", func(t *testing.T) {
+		err := checkMetadataDigest("aabbccdd", false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "metadataDigest mismatch")
+	})
+
+	t.Run("chain_metadata sent, non-empty digest: no error", func(t *testing.T) {
+		err := checkMetadataDigest("aabbccdd", true)
+		require.NoError(t, err)
+	})
+
+	t.Run("chain_metadata sent, empty digest: no error", func(t *testing.T) {
+		err := checkMetadataDigest("", true)
+		require.NoError(t, err)
+	})
+}

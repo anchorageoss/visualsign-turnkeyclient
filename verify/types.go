@@ -40,6 +40,7 @@ package verify
 import (
 	"crypto/ecdsa"
 
+	"github.com/anchorageoss/visualsign-turnkeyclient/api"
 	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 )
 
@@ -50,6 +51,9 @@ type VerifyRequest struct {
 	PivotBinaryHashHex string
 	SaveManifestPath   string
 	Chain              string
+	// ChainMetadata is forwarded to the Turnkey parse API when non-nil.
+	// When set, the metadataDigest assertion is skipped (Borsh verification is a follow-up).
+	ChainMetadata *api.RequestChainMetadata
 }
 
 // VerifyResult represents the result of verification
