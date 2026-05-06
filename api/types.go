@@ -40,6 +40,23 @@ type TurnkeyAPIKey struct {
 	OrganizationID string
 }
 
+// ABIValue holds a JSON-encoded ABI definition.
+type ABIValue struct {
+	Value string `json:"value"`
+}
+
+// EthereumChainMetadata carries optional ABI mappings for Ethereum parse requests.
+// ABIMappings maps 0x-prefixed contract address to its ABI JSON.
+type EthereumChainMetadata struct {
+	NetworkID   *string             `json:"networkId,omitempty"`
+	ABIMappings map[string]ABIValue `json:"abiMappings,omitempty"`
+}
+
+// RequestChainMetadata is the chain_metadata field in the Turnkey parse request.
+type RequestChainMetadata struct {
+	Ethereum *EthereumChainMetadata `json:"ethereum,omitempty"`
+}
+
 // TurnkeyStamp represents the stamp structure for API key authentication
 type TurnkeyStamp struct {
 	PublicKey string `json:"publicKey"`
@@ -50,8 +67,9 @@ type TurnkeyStamp struct {
 // TurnkeyVisualSignRequest represents the request to Turnkey's visualsign API
 type TurnkeyVisualSignRequest struct {
 	Request struct {
-		UnsignedPayload string `json:"unsigned_payload"`
-		Chain           string `json:"chain"`
+		UnsignedPayload string                `json:"unsigned_payload"`
+		Chain           string                `json:"chain"`
+		ChainMetadata   *RequestChainMetadata `json:"chain_metadata,omitempty"`
 	} `json:"request"`
 	OrganizationID string `json:"organization_id"`
 }

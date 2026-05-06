@@ -59,6 +59,7 @@ func NewClient(hostURI string, httpClient HTTPClient, organizationID string, pro
 type CreateSignablePayloadRequest struct {
 	UnsignedPayload string
 	Chain           string
+	ChainMetadata   *RequestChainMetadata // optional — nil means no ABIs sent
 }
 
 // CreateSignablePayload calls Turnkey's visualsign API to create a signable payload
@@ -74,11 +75,13 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	// Create the visualsign request
 	reqBody := TurnkeyVisualSignRequest{
 		Request: struct {
-			UnsignedPayload string `json:"unsigned_payload"`
-			Chain           string `json:"chain"`
+			UnsignedPayload string                `json:"unsigned_payload"`
+			Chain           string                `json:"chain"`
+			ChainMetadata   *RequestChainMetadata `json:"chain_metadata,omitempty"`
 		}{
 			UnsignedPayload: req.UnsignedPayload,
 			Chain:           req.Chain,
+			ChainMetadata:   req.ChainMetadata,
 		},
 		OrganizationID: c.APIKey.OrganizationID,
 	}
