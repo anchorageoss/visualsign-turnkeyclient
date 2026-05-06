@@ -96,8 +96,8 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	// our inputs. See visualsign-parser's src/parser/app/src/routes/parse.rs:
 	//   input_payload_digest = sha256(unsigned_payload_string_bytes)
 	//   metadata_digest      = sha256(borsh_encode(chain_metadata))
-	// This client does not send chain_metadata, so the expected metadata
-	// digest is the SHA-256 of an empty byte slice.
+	// When chain_metadata is nil the expected metadata digest is SHA-256("").
+	// When chain_metadata is non-nil the digest check is skipped pending Borsh verification.
 	if response.InputPayloadDigest != "" {
 		computed := manifest.ComputeHash([]byte(req.UnsignedPayload))
 		if computed != response.InputPayloadDigest {
@@ -397,7 +397,7 @@ type AppAttestation struct {
 
 // emptyMetadataDigestHex is SHA-256(""), the digest the visualsign parser
 // produces when no chain_metadata is supplied (Borsh-encoded empty vec).
-const emptyMetadataDigestHex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+var emptyMetadataDigestHex = manifest.ComputeHash([]byte{})
 
 // checkMetadataDigest validates the metadataDigest from the backend.
 // When chainMetadataSent is true the assertion is skipped because the backend

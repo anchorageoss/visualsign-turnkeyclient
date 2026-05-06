@@ -695,15 +695,13 @@ func TestProcessManifest(t *testing.T) {
 // - no chain_metadata sent + digest is unexpected value → error
 // - chain_metadata sent + any digest → no error (Borsh verification is a follow-up)
 func TestCheckMetadataDigest(t *testing.T) {
-	const emptyDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-
 	t.Run("no chain_metadata, empty digest: ok", func(t *testing.T) {
 		err := checkMetadataDigest("", false)
 		require.NoError(t, err)
 	})
 
 	t.Run("no chain_metadata, digest matches empty SHA-256: ok", func(t *testing.T) {
-		err := checkMetadataDigest(emptyDigest, false)
+		err := checkMetadataDigest(emptyMetadataDigestHex, false)
 		require.NoError(t, err)
 	})
 
