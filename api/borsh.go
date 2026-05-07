@@ -63,7 +63,7 @@ func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
 	}
 	kvs := make([]borshKeyValue, len(s.Metadata))
 	for i, kv := range s.Metadata {
-		kvs[i] = borshKeyValue{Key: kv.Key, Value: kv.Value}
+		kvs[i] = borshKeyValue(kv)
 	}
 	return &borshSignatureMetadata{Value: s.Value, Metadata: kvs}
 }
