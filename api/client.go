@@ -73,18 +73,10 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	}
 
 	// Create the visualsign request
-	reqBody := TurnkeyVisualSignRequest{
-		Request: struct {
-			UnsignedPayload string                `json:"unsigned_payload"`
-			Chain           string                `json:"chain"`
-			ChainMetadata   *RequestChainMetadata `json:"chain_metadata,omitempty"`
-		}{
-			UnsignedPayload: req.UnsignedPayload,
-			Chain:           req.Chain,
-			ChainMetadata:   req.ChainMetadata,
-		},
-		OrganizationID: c.APIKey.OrganizationID,
-	}
+	reqBody := TurnkeyVisualSignRequest{OrganizationID: c.APIKey.OrganizationID}
+	reqBody.Request.UnsignedPayload = req.UnsignedPayload
+	reqBody.Request.Chain = req.Chain
+	reqBody.Request.ChainMetadata = req.ChainMetadata
 
 	// Marshal request to JSON
 	reqJSON, err := json.Marshal(reqBody)

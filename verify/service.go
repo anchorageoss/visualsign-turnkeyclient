@@ -394,8 +394,8 @@ type AppAttestation struct {
 	Signature string `json:"signature"`
 }
 
-// emptyMetadataDigestHex is SHA-256(""), the digest the visualsign parser
-// produces when no chain_metadata is supplied (Borsh-encoded empty vec).
+// emptyMetadataDigestHex is SHA-256 of an empty byte slice. The visualsign
+// parser produces this digest when no chain_metadata is supplied.
 var emptyMetadataDigestHex = manifest.ComputeHash([]byte{})
 
 // checkMetadataDigest validates the metadataDigest from the backend.
