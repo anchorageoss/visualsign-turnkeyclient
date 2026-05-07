@@ -251,6 +251,23 @@ func TestVerifyChainMetadataRequiresChain(t *testing.T) {
 	require.Contains(t, err.Error(), "chain must be specified")
 }
 
+// TestVerifyEthereumMetadataRequiresEthereumChain ensures that providing
+// Ethereum chain metadata alongside a non-Ethereum chain returns an error.
+func TestVerifyEthereumMetadataRequiresEthereumChain(t *testing.T) {
+	service := NewService(&mockAPIClient{}, &mockAttestationVerifier{})
+	networkID := "1"
+	req := &VerifyRequest{
+		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
+		ChainMetadata: &api.RequestChainMetadata{
+			Ethereum: &api.EthereumChainMetadata{NetworkID: &networkID},
+		},
+	}
+	_, err := service.Verify(context.Background(), req)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ChainMetadata.Ethereum requires an Ethereum chain")
+}
+
 // Test Verify - API error
 func TestVerifyAPIError(t *testing.T) {
 	mockAPI := &mockAPIClient{err: fmt.Errorf("API error")}

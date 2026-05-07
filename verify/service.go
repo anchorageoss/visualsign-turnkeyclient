@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 
 	nitroverifier "github.com/anchorageoss/awsnitroverifier"
 	"github.com/anchorageoss/visualsign-turnkeyclient/api"
@@ -57,6 +58,11 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 			return nil, fmt.Errorf("chain must be specified when ChainMetadata is set")
 		}
 		chain = "CHAIN_SOLANA" // default to Solana if not specified
+	}
+	if req.ChainMetadata != nil && req.ChainMetadata.Ethereum != nil {
+		if !strings.HasPrefix(chain, "CHAIN_ETHEREUM") {
+			return nil, fmt.Errorf("ChainMetadata.Ethereum requires an Ethereum chain, got %q", chain)
+		}
 	}
 	apiReq := &api.CreateSignablePayloadRequest{
 		UnsignedPayload: req.UnsignedPayload,
