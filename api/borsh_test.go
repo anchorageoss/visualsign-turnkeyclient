@@ -30,17 +30,17 @@ func TestMetadataDigestHex_Fixture(t *testing.T) {
 		"Borsh encoding diverged from Rust parser — update fixture or fix encoding")
 }
 
-// TestMetadataDigestHex_NilMetadata verifies that a nil RequestChainMetadata
-// produces the empty-input SHA-256 (matching the backend when no metadata is sent).
-func TestMetadataDigestHex_NilMetadata(t *testing.T) {
+// TestMetadataDigestHex_NilReceiverDoesNotPanic verifies that calling MetadataDigestHex
+// on a nil *RequestChainMetadata does not panic and returns the Borsh encoding of
+// ChainMetadata{metadata:None}, which is sha256([0x00]). This differs from
+// emptyMetadataDigestHex (sha256("")) — the nil receiver path is a Go safety guard,
+// not a match for the backend's no-metadata-sent digest.
+func TestMetadataDigestHex_NilReceiverDoesNotPanic(t *testing.T) {
 	var r *RequestChainMetadata
 	digest, err := r.MetadataDigestHex()
 	require.NoError(t, err)
-	// SHA-256 of the Borsh-encoded ChainMetadata with metadata=None is sha256([0x00]).
-	// Distinct from sha256("") — but the backend path for nil chain_metadata uses
-	// vec![] (empty bytes), not borsh(None). The nil path in Go should not normally
-	// be called (callers only call MetadataDigestHex when ChainMetadata is non-nil).
-	require.NotEmpty(t, digest)
+	// sha256([0x00]) — Borsh Option::None encoding, NOT sha256("")
+	require.Equal(t, "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d", digest)
 }
 
 // TestMetadataDigestHex_Deterministic verifies that two identical RequestChainMetadata

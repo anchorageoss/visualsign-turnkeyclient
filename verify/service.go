@@ -105,7 +105,8 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	//   input_payload_digest = sha256(unsigned_payload_string_bytes)
 	//   metadata_digest      = sha256(borsh_encode(chain_metadata))
 	// When chain_metadata is nil the expected metadata digest is SHA-256("").
-	// When chain_metadata is non-nil the digest check is skipped pending Borsh verification.
+	// When chain_metadata is non-nil the expected digest is SHA-256(Borsh(chain_metadata)),
+	// computed locally via RequestChainMetadata.MetadataDigestHex().
 	if response.InputPayloadDigest != "" {
 		computed := manifest.ComputeHash([]byte(req.UnsignedPayload))
 		if computed != response.InputPayloadDigest {
