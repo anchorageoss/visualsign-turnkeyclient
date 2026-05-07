@@ -107,6 +107,8 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	// When chain_metadata is nil the expected metadata digest is SHA-256("").
 	// When chain_metadata is non-nil the expected digest is SHA-256(Borsh(chain_metadata)),
 	// computed locally via RequestChainMetadata.MetadataDigestHex().
+	// Digest verification is skipped when the backend omits the field (empty string),
+	// consistent with how InputPayloadDigest is handled above.
 	if response.InputPayloadDigest != "" {
 		computed := manifest.ComputeHash([]byte(req.UnsignedPayload))
 		if computed != response.InputPayloadDigest {
@@ -409,9 +411,11 @@ type AppAttestation struct {
 var emptyMetadataDigestHex = manifest.ComputeHash([]byte{})
 
 // checkMetadataDigest validates the metadataDigest from the backend.
-// When chainMetadata is nil the expected digest is SHA-256("") (the backend
-// hashes an empty byte slice when no chain_metadata is sent). When non-nil the
-// expected digest is computed by Borsh-encoding chainMetadata and hashing it.
+// Verification is best-effort: when digest is empty the backend did not return
+// the field (older versions) and the check is skipped regardless of chainMetadata.
+// When digest is non-empty and chainMetadata is nil, the expected value is SHA-256("").
+// When digest is non-empty and chainMetadata is non-nil, the expected value is
+// SHA-256(Borsh(chainMetadata)), computed via chainMetadata.MetadataDigestHex().
 func checkMetadataDigest(digest string, chainMetadata *api.RequestChainMetadata) error {
 	if digest == "" {
 		return nil
