@@ -725,34 +725,51 @@ func TestProcessManifest(t *testing.T) {
 	})
 }
 
-// TestCheckMetadataDigest verifies the metadataDigest assertion rules:
-// - no chain_metadata sent + digest matches empty SHA-256 → no error
-// - no chain_metadata sent + digest is unexpected value → error
-// - chain_metadata sent + any digest → no error (Borsh verification is a follow-up)
+// TestCheckMetadataDigest verifies the metadataDigest assertion rules.
 func TestCheckMetadataDigest(t *testing.T) {
 	t.Run("no chain_metadata, empty digest: ok", func(t *testing.T) {
-		err := checkMetadataDigest("", false)
-		require.NoError(t, err)
+		require.NoError(t, checkMetadataDigest("", nil))
 	})
 
 	t.Run("no chain_metadata, digest matches empty SHA-256: ok", func(t *testing.T) {
-		err := checkMetadataDigest(emptyMetadataDigestHex, false)
-		require.NoError(t, err)
+		require.NoError(t, checkMetadataDigest(emptyMetadataDigestHex, nil))
 	})
 
 	t.Run("no chain_metadata, unexpected digest: error", func(t *testing.T) {
-		err := checkMetadataDigest("aabbccdd", false)
+		err := checkMetadataDigest("aabbccdd", nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "metadataDigest mismatch")
 	})
 
-	t.Run("chain_metadata sent, non-empty digest: no error", func(t *testing.T) {
-		err := checkMetadataDigest("aabbccdd", true)
+	t.Run("chain_metadata sent, matching digest: ok", func(t *testing.T) {
+		networkID := "ETHEREUM_MAINNET"
+		meta := &api.RequestChainMetadata{
+			Ethereum: &api.EthereumChainMetadata{
+				NetworkID: &networkID,
+				ABIMappings: map[string]api.ABIValue{
+					"0xContract": {Value: `[{"name":"transfer"}]`},
+				},
+			},
+		}
+		digest, err := meta.MetadataDigestHex()
 		require.NoError(t, err)
+		require.NoError(t, checkMetadataDigest(digest, meta))
 	})
 
-	t.Run("chain_metadata sent, empty digest: no error", func(t *testing.T) {
-		err := checkMetadataDigest("", true)
-		require.NoError(t, err)
+	t.Run("chain_metadata sent, wrong digest: error", func(t *testing.T) {
+		networkID := "ETHEREUM_MAINNET"
+		meta := &api.RequestChainMetadata{
+			Ethereum: &api.EthereumChainMetadata{NetworkID: &networkID},
+		}
+		err := checkMetadataDigest("deadbeef", meta)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "metadataDigest mismatch")
+	})
+
+	t.Run("chain_metadata sent, empty digest: ok", func(t *testing.T) {
+		meta := &api.RequestChainMetadata{
+			Ethereum: &api.EthereumChainMetadata{},
+		}
+		require.NoError(t, checkMetadataDigest("", meta))
 	})
 }

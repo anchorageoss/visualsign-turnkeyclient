@@ -113,7 +113,7 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 				response.InputPayloadDigest, computed)
 		}
 	}
-	if err := checkMetadataDigest(response.MetadataDigest, apiReq.ChainMetadata != nil); err != nil {
+	if err := checkMetadataDigest(response.MetadataDigest, apiReq.ChainMetadata); err != nil {
 		return nil, err
 	}
 
@@ -408,16 +408,27 @@ type AppAttestation struct {
 var emptyMetadataDigestHex = manifest.ComputeHash([]byte{})
 
 // checkMetadataDigest validates the metadataDigest from the backend.
-// When chainMetadataSent is true the assertion is skipped because the backend
-// returns SHA-256(Borsh(chain_metadata)) instead of SHA-256(""); full Borsh
-// round-trip verification is a follow-up.
-func checkMetadataDigest(digest string, chainMetadataSent bool) error {
-	if digest == "" || digest == emptyMetadataDigestHex {
+// When chainMetadata is nil the expected digest is SHA-256("") (the backend
+// hashes an empty byte slice when no chain_metadata is sent). When non-nil the
+// expected digest is computed by Borsh-encoding chainMetadata and hashing it.
+func checkMetadataDigest(digest string, chainMetadata *api.RequestChainMetadata) error {
+	if digest == "" {
 		return nil
 	}
-	if chainMetadataSent {
+	if chainMetadata == nil {
+		if digest != emptyMetadataDigestHex {
+			return fmt.Errorf("metadataDigest mismatch: backend reported %s, expected %s (client sent no chain_metadata)",
+				digest, emptyMetadataDigestHex)
+		}
 		return nil
 	}
-	return fmt.Errorf("metadataDigest mismatch: backend reported %s, expected %s (client sends no chain_metadata)",
-		digest, emptyMetadataDigestHex)
+	expected, err := chainMetadata.MetadataDigestHex()
+	if err != nil {
+		return fmt.Errorf("failed to compute expected metadataDigest: %w", err)
+	}
+	if digest != expected {
+		return fmt.Errorf("metadataDigest mismatch: backend reported %s, computed %s",
+			digest, expected)
+	}
+	return nil
 }

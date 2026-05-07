@@ -40,9 +40,40 @@ type TurnkeyAPIKey struct {
 	OrganizationID string
 }
 
-// ABIValue holds a JSON-encoded ABI definition.
-type ABIValue struct {
+// SignatureKV is a key-value metadata entry attached to an ABISignature.
+// Standard keys: "algorithm" ("secp256k1" or "ed25519"), "public_key" (hex),
+// "issuer" (address), "timestamp" (unix epoch string).
+type SignatureKV struct {
+	Key   string `json:"key"`
 	Value string `json:"value"`
+}
+
+// ABISignature is an optional cryptographic signature over an ABI definition.
+// Value is the hex-encoded signature over the ABI JSON content.
+// Metadata carries algorithm, public key, and any other attestation fields.
+// Use NewABISignature to construct with the standard metadata layout.
+type ABISignature struct {
+	Value    string        `json:"value"`
+	Metadata []SignatureKV `json:"metadata,omitempty"`
+}
+
+// NewABISignature constructs an ABISignature with the standard metadata fields.
+// value is the hex-encoded signature over the ABI JSON string.
+// algorithm is the signing algorithm, e.g. "secp256k1" or "ed25519".
+// publicKey is the hex-encoded public key of the signer.
+// extra adds any additional metadata entries (e.g. "issuer", "timestamp").
+func NewABISignature(value, algorithm, publicKey string, extra ...SignatureKV) *ABISignature {
+	kvs := make([]SignatureKV, 0, 2+len(extra))
+	kvs = append(kvs, SignatureKV{Key: "algorithm", Value: algorithm})
+	kvs = append(kvs, SignatureKV{Key: "public_key", Value: publicKey})
+	kvs = append(kvs, extra...)
+	return &ABISignature{Value: value, Metadata: kvs}
+}
+
+// ABIValue holds a JSON-encoded ABI definition and an optional signature.
+type ABIValue struct {
+	Value     string        `json:"value"`
+	Signature *ABISignature `json:"signature,omitempty"`
 }
 
 // EthereumChainMetadata carries optional ABI mappings for Ethereum parse requests.

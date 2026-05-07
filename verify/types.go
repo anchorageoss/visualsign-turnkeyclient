@@ -52,7 +52,8 @@ type VerifyRequest struct {
 	SaveManifestPath   string
 	Chain              string
 	// ChainMetadata is forwarded to the Turnkey parse API when non-nil.
-	// When set, the metadataDigest assertion is skipped (Borsh verification is a follow-up).
+	// When set, Verify locally recomputes metadataDigest via Borsh encoding and
+	// compares it against the backend-reported value.
 	ChainMetadata *api.RequestChainMetadata
 }
 
