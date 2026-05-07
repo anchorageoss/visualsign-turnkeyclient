@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math/big"
 	"os"
 
@@ -408,7 +407,6 @@ func checkMetadataDigest(digest string, chainMetadataSent bool) error {
 		return nil
 	}
 	if chainMetadataSent {
-		log.Printf("WARN: skipping metadataDigest assertion (chain_metadata was sent, Borsh verification is a follow-up): %s", digest)
 		return nil
 	}
 	return fmt.Errorf("metadataDigest mismatch: backend reported %s, expected %s (client sends no chain_metadata)",
