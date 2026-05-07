@@ -233,6 +233,24 @@ func TestVerifyUserData(t *testing.T) {
 	})
 }
 
+// TestVerifyChainMetadataRequiresChain ensures that setting ChainMetadata
+// without an explicit Chain returns an error rather than silently defaulting
+// to CHAIN_SOLANA.
+func TestVerifyChainMetadataRequiresChain(t *testing.T) {
+	service := NewService(&mockAPIClient{}, &mockAttestationVerifier{})
+	networkID := "1"
+	req := &VerifyRequest{
+		UnsignedPayload: "unsigned-payload",
+		// Chain intentionally empty
+		ChainMetadata: &api.RequestChainMetadata{
+			Ethereum: &api.EthereumChainMetadata{NetworkID: &networkID},
+		},
+	}
+	_, err := service.Verify(context.Background(), req)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "chain must be specified")
+}
+
 // Test Verify - API error
 func TestVerifyAPIError(t *testing.T) {
 	mockAPI := &mockAPIClient{err: fmt.Errorf("API error")}

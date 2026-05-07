@@ -53,6 +53,9 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	// Step 1: Call API to get signable payload and attestations
 	chain := req.Chain
 	if chain == "" {
+		if req.ChainMetadata != nil {
+			return nil, fmt.Errorf("chain must be specified when ChainMetadata is set")
+		}
 		chain = "CHAIN_SOLANA" // default to Solana if not specified
 	}
 	apiReq := &api.CreateSignablePayloadRequest{
