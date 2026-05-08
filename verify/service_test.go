@@ -47,6 +47,16 @@ func create130BytePublicKey(t *testing.T) ([]byte, *ecdsa.PrivateKey) {
 	return pubKeyBytes130, privKey
 }
 
+// expectedMessageHex returns the appAttestation.Message value the
+// VerifyResponse Borsh hash check expects for the given response fields.
+// Tests that aren't about the Borsh binding itself use this to bypass it.
+func expectedMessageHex(t *testing.T, signablePayload, inputDigest, metadataDigest string) string {
+	t.Helper()
+	msg, err := ComputeBorshParsedTransactionPayloadHash(signablePayload, inputDigest, metadataDigest)
+	require.NoError(t, err)
+	return msg
+}
+
 // Mock implementations
 
 type mockAPIClient struct {
@@ -289,7 +299,7 @@ func TestVerifyAPIError(t *testing.T) {
 func TestVerifyAttestationError(t *testing.T) {
 	pubKeyBytes, _ := create130BytePublicKey(t)
 	validKey260 := hex.EncodeToString(pubKeyBytes)
-	messageHex := strings.Repeat("ff", 32)
+	messageHex := expectedMessageHex(t, "test-payload", "", "")
 	signatureHex := strings.Repeat("cd", 64)
 	appAttJSON := fmt.Sprintf(`{"message":"%s","publicKey":"%s","signature":"%s"}`, messageHex, validKey260, signatureHex)
 
@@ -323,7 +333,7 @@ func TestVerifyAttestationError(t *testing.T) {
 func TestVerifyInvalidAttestation(t *testing.T) {
 	pubKeyBytes, _ := create130BytePublicKey(t)
 	validKey260 := hex.EncodeToString(pubKeyBytes)
-	messageHex := strings.Repeat("ee", 32)
+	messageHex := expectedMessageHex(t, "test-payload", "", "")
 	signatureHex := strings.Repeat("fe", 64)
 	appAttJSON := fmt.Sprintf(`{"message":"%s","publicKey":"%s","signature":"%s"}`, messageHex, validKey260, signatureHex)
 
@@ -464,53 +474,15 @@ func TestVerifyInvalidPublicKey(t *testing.T) {
 	require.Nil(t, result)
 }
 
-// Test Verify - invalid message hex
-func TestVerifyInvalidMessageHex(t *testing.T) {
-	pubKeyBytes, _ := create130BytePublicKey(t)
-	validKey260 := hex.EncodeToString(pubKeyBytes)
-
-	appAttJSON := fmt.Sprintf(`{"message":"ZZZZZ","publicKey":"%s","signature":"%s"}`, validKey260, strings.Repeat("ab", 64))
-
-	// Use valid base64 for boot attestation
-	bootAttestationB64 := base64.StdEncoding.EncodeToString([]byte("boot-doc"))
-
-	apiResponse := &api.SignablePayloadResponse{
-		SignablePayload: "test-payload",
-		Attestations: map[api.AttestationType]string{
-			api.AppAttestationKey:  appAttJSON,
-			api.BootAttestationKey: bootAttestationB64,
-		},
-	}
-
-	mockAPI := &mockAPIClient{response: apiResponse}
-	mockVerifier := &mockAttestationVerifier{
-		result: &nitroverifier.ValidationResult{
-			Valid: true,
-			Document: &nitroverifier.AttestationDocument{
-				ModuleID: "test-module",
-				PCRs:     map[uint][]byte{},
-				UserData: []byte{},
-			},
-		},
-	}
-
-	service := NewService(mockAPI, mockVerifier)
-
-	req := &VerifyRequest{
-		UnsignedPayload: "unsigned-payload",
-	}
-
-	result, err := service.Verify(context.Background(), req)
-	require.Error(t, err)
-	require.Nil(t, result)
-	require.Contains(t, err.Error(), "failed to decode message hex")
-}
-
-// Test Verify - invalid signature hex
+// Test Verify - invalid signature hex. The new Borsh hash check binds
+// appAttestation.Message to (signablePayload, inputDigest, metadataDigest)
+// and the new cross-field check binds appAttestation.PublicKey to
+// validationResult.Document.PublicKey, so this test feeds matching values
+// for both before reaching the signature-hex decode path.
 func TestVerifyInvalidSignatureHex(t *testing.T) {
 	pubKeyBytes, _ := create130BytePublicKey(t)
 	validKey260 := hex.EncodeToString(pubKeyBytes)
-	messageHex := strings.Repeat("de", 32)
+	messageHex := expectedMessageHex(t, "test-payload", "", "")
 
 	appAttJSON := fmt.Sprintf(`{"message":"%s","publicKey":"%s","signature":"ZZZZ"}`, messageHex, validKey260)
 
@@ -530,9 +502,10 @@ func TestVerifyInvalidSignatureHex(t *testing.T) {
 		result: &nitroverifier.ValidationResult{
 			Valid: true,
 			Document: &nitroverifier.AttestationDocument{
-				ModuleID: "test-module",
-				PCRs:     map[uint][]byte{},
-				UserData: []byte{},
+				ModuleID:  "test-module",
+				PCRs:      map[uint][]byte{},
+				UserData:  []byte{},
+				PublicKey: pubKeyBytes,
 			},
 		},
 	}
@@ -772,4 +745,137 @@ func TestCheckMetadataDigest(t *testing.T) {
 		}
 		require.NoError(t, checkMetadataDigest("", meta))
 	})
+}
+
+
+// TestVerifyResponse_NilAPIClient confirms VerifyResponse works without
+// an APIClient — the entry point for backend integrations that have a
+// pre-fetched SignablePayloadResponse and never call the API directly.
+func TestVerifyResponse_NilAPIClient(t *testing.T) {
+	pubKeyBytes, _ := create130BytePublicKey(t)
+	validKey260 := hex.EncodeToString(pubKeyBytes)
+	messageHex := expectedMessageHex(t, "test-payload", "", "")
+	signatureHex := strings.Repeat("ab", 64)
+	appAttJSON := fmt.Sprintf(`{"message":"%s","publicKey":"%s","signature":"%s"}`, messageHex, validKey260, signatureHex)
+	bootAttestationB64 := base64.StdEncoding.EncodeToString([]byte("boot-doc"))
+
+	response := &api.SignablePayloadResponse{
+		SignablePayload: "test-payload",
+		Attestations: map[api.AttestationType]string{
+			api.AppAttestationKey:  appAttJSON,
+			api.BootAttestationKey: bootAttestationB64,
+		},
+	}
+
+	mockVerifier := &mockAttestationVerifier{
+		result: &nitroverifier.ValidationResult{
+			Valid: true,
+			Document: &nitroverifier.AttestationDocument{
+				ModuleID:  "test-module",
+				PCRs:      map[uint][]byte{},
+				UserData:  []byte{},
+				PublicKey: pubKeyBytes,
+			},
+		},
+	}
+
+	service := NewService(nil, mockVerifier)
+	// Signature verification will fail (signatureHex is not a real signature),
+	// but the test asserts we reach that step — i.e., the nil APIClient is
+	// not a problem for VerifyResponse.
+	_, err := service.VerifyResponse(context.Background(), response, &VerifyResponseRequest{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "signature verification failed")
+}
+
+// TestVerify_NilAPIClient confirms Verify returns a clean error when no
+// APIClient is configured, so callers don't accidentally hit a nil
+// dereference.
+func TestVerify_NilAPIClient(t *testing.T) {
+	mockVerifier := &mockAttestationVerifier{}
+	service := NewService(nil, mockVerifier)
+	_, err := service.Verify(context.Background(), &VerifyRequest{UnsignedPayload: "x"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Verify requires an APIClient")
+}
+
+// TestVerifyResponse_BorshHashMismatch tampers with response.SignablePayload
+// after the appAttestation.Message was already pinned to the original. The
+// new Borsh hash recompute should detect the change.
+func TestVerifyResponse_BorshHashMismatch(t *testing.T) {
+	pubKeyBytes, _ := create130BytePublicKey(t)
+	validKey260 := hex.EncodeToString(pubKeyBytes)
+	// Message pinned to the ORIGINAL signablePayload "test-payload",
+	// then we tamper with response.SignablePayload below.
+	messageHex := expectedMessageHex(t, "test-payload", "", "")
+	signatureHex := strings.Repeat("ab", 64)
+	appAttJSON := fmt.Sprintf(`{"message":"%s","publicKey":"%s","signature":"%s"}`, messageHex, validKey260, signatureHex)
+	bootAttestationB64 := base64.StdEncoding.EncodeToString([]byte("boot-doc"))
+
+	response := &api.SignablePayloadResponse{
+		SignablePayload: "tampered-payload", // tampered
+		Attestations: map[api.AttestationType]string{
+			api.AppAttestationKey:  appAttJSON,
+			api.BootAttestationKey: bootAttestationB64,
+		},
+	}
+
+	mockVerifier := &mockAttestationVerifier{
+		result: &nitroverifier.ValidationResult{
+			Valid: true,
+			Document: &nitroverifier.AttestationDocument{
+				PublicKey: pubKeyBytes,
+			},
+		},
+	}
+
+	service := NewService(nil, mockVerifier)
+	_, err := service.VerifyResponse(context.Background(), response, &VerifyResponseRequest{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "appAttestation.Message mismatch")
+}
+
+// TestVerifyResponse_AppPubKeyMismatch tampers with appAttestation.PublicKey
+// while leaving validationResult.Document.PublicKey at the real key. The new
+// cross-field public-key consistency check should detect the divergence.
+func TestVerifyResponse_AppPubKeyMismatch(t *testing.T) {
+	realKeyBytes, _ := create130BytePublicKey(t)
+	tamperedKeyBytes, _ := create130BytePublicKey(t) // different key
+	tamperedKeyHex := hex.EncodeToString(tamperedKeyBytes)
+
+	messageHex := expectedMessageHex(t, "test-payload", "", "")
+	signatureHex := strings.Repeat("ab", 64)
+	appAttJSON := fmt.Sprintf(`{"message":"%s","publicKey":"%s","signature":"%s"}`, messageHex, tamperedKeyHex, signatureHex)
+	bootAttestationB64 := base64.StdEncoding.EncodeToString([]byte("boot-doc"))
+
+	response := &api.SignablePayloadResponse{
+		SignablePayload: "test-payload",
+		Attestations: map[api.AttestationType]string{
+			api.AppAttestationKey:  appAttJSON,
+			api.BootAttestationKey: bootAttestationB64,
+		},
+	}
+
+	mockVerifier := &mockAttestationVerifier{
+		result: &nitroverifier.ValidationResult{
+			Valid: true,
+			Document: &nitroverifier.AttestationDocument{
+				PublicKey: realKeyBytes, // attestation reports the real key
+			},
+		},
+	}
+
+	service := NewService(nil, mockVerifier)
+	_, err := service.VerifyResponse(context.Background(), response, &VerifyResponseRequest{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "appAttestation.PublicKey mismatch")
+}
+
+// TestVerifyResponse_NilResponse guards against caller programming error.
+func TestVerifyResponse_NilResponse(t *testing.T) {
+	mockVerifier := &mockAttestationVerifier{}
+	service := NewService(nil, mockVerifier)
+	_, err := service.VerifyResponse(context.Background(), nil, &VerifyResponseRequest{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "non-nil SignablePayloadResponse")
 }

@@ -44,14 +44,14 @@ func NewService(apiClient APIClient, attestationVerifier AttestationVerifier) *S
 	}
 }
 
-// Verify performs end-to-end verification of a transaction in AWS Nitro enclave
+// Verify performs end-to-end verification of a transaction in an AWS Nitro
+// enclave: it calls the configured APIClient to fetch a SignablePayloadResponse
+// and then runs the post-fetch verification chain via VerifyResponse.
 func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult, error) {
-	result := &VerifyResult{
-		PCRs:                    make(map[uint][]byte),
-		ManifestReserialization: ManifestSerializationResult{},
+	if s.apiClient == nil {
+		return nil, errors.New("Verify requires an APIClient; use VerifyResponse for pre-fetched responses")
 	}
 
-	// Step 1: Call API to get signable payload and attestations
 	chain := req.Chain
 	if chain == "" {
 		if req.ChainMetadata != nil {
@@ -73,6 +73,33 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	response, err := s.apiClient.CreateSignablePayload(ctx, apiReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call API: %w", err)
+	}
+
+	return s.VerifyResponse(ctx, response, &VerifyResponseRequest{
+		UnsignedPayload:    req.UnsignedPayload,
+		QosManifestHex:     req.QosManifestHex,
+		PivotBinaryHashHex: req.PivotBinaryHashHex,
+		SaveManifestPath:   req.SaveManifestPath,
+		ChainMetadata:      req.ChainMetadata,
+	})
+}
+
+// VerifyResponse runs the verification chain on a pre-fetched
+// SignablePayloadResponse — used when the response was obtained out-of-band
+// (e.g., a backend integration that received the Turnkey response via another
+// channel and never makes the API call directly). Equivalent to Steps 2-5 of
+// Verify; APIClient is not invoked.
+func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloadResponse, req *VerifyResponseRequest) (*VerifyResult, error) {
+	if response == nil {
+		return nil, errors.New("VerifyResponse requires a non-nil SignablePayloadResponse")
+	}
+	if req == nil {
+		req = &VerifyResponseRequest{}
+	}
+
+	result := &VerifyResult{
+		PCRs:                    make(map[uint][]byte),
+		ManifestReserialization: ManifestSerializationResult{},
 	}
 
 	// Save QoS manifest envelope to file if requested
@@ -108,16 +135,33 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	// When chain_metadata is non-nil the expected digest is SHA-256(Borsh(chain_metadata)),
 	// computed locally via RequestChainMetadata.MetadataDigestHex().
 	// Digest verification is skipped when the backend omits the field (empty string),
-	// consistent with how InputPayloadDigest is handled above.
-	if response.InputPayloadDigest != "" {
+	// or when UnsignedPayload is not provided (backend integration path where the
+	// original unsigned bytes are not available locally).
+	if response.InputPayloadDigest != "" && req.UnsignedPayload != "" {
 		computed := manifest.ComputeHash([]byte(req.UnsignedPayload))
 		if computed != response.InputPayloadDigest {
 			return nil, fmt.Errorf("inputPayloadDigest mismatch: backend reported %s, computed %s",
 				response.InputPayloadDigest, computed)
 		}
 	}
-	if err := checkMetadataDigest(response.MetadataDigest, apiReq.ChainMetadata); err != nil {
+	if err := checkMetadataDigest(response.MetadataDigest, req.ChainMetadata); err != nil {
 		return nil, err
+	}
+
+	// Bind appAttestation.Message to (signablePayload, inputPayloadDigest,
+	// metadataDigest) by recomputing the Borsh ParsedTransactionPayload hash.
+	// Without this, an attacker controlling the transport could substitute
+	// signablePayload while keeping a valid signature over an unrelated
+	// message hash.
+	expectedMsg, err := ComputeBorshParsedTransactionPayloadHash(
+		response.SignablePayload, response.InputPayloadDigest, response.MetadataDigest,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("compute borsh parsed transaction payload hash: %w", err)
+	}
+	if appAttestation.Message != expectedMsg {
+		return nil, fmt.Errorf("appAttestation.Message mismatch: enclave reported %s, recomputed %s",
+			appAttestation.Message, expectedMsg)
 	}
 
 	bootAttestationDocBytes, err := base64.StdEncoding.DecodeString(bootAttestationDoc)
@@ -140,6 +184,15 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	result.PCRs = validationResult.Document.PCRs
 	result.UserData = validationResult.Document.UserData
 	result.AttestationDocument = validationResult.Document
+
+	// Bind the public_key embedded in the attestation document to the
+	// public key the enclave reports in the app attestation. They must
+	// reference the same ephemeral key.
+	attestationPubKeyHex := hex.EncodeToString(validationResult.Document.PublicKey)
+	if appAttestation.PublicKey != attestationPubKeyHex {
+		return nil, fmt.Errorf("appAttestation.PublicKey mismatch: attestation document %s, app %s",
+			attestationPubKeyHex, appAttestation.PublicKey)
+	}
 
 	// Capture PCR validation results if any PCR rules were provided
 	if len(validationResult.PCRResults) > 0 {
