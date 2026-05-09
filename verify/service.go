@@ -148,6 +148,13 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 		return nil, err
 	}
 
+	// Validate appAttestation.Message hex shape before the Borsh binding
+	// below, so a malformed encoding surfaces as a decode error rather
+	// than as a misleading "Message mismatch".
+	if _, err := hex.DecodeString(appAttestation.Message); err != nil {
+		return nil, fmt.Errorf("failed to decode message hex: %w", err)
+	}
+
 	// Bind appAttestation.Message to (signablePayload, inputPayloadDigest,
 	// metadataDigest) by recomputing the Borsh ParsedTransactionPayload hash.
 	// Without this, an attacker controlling the transport could substitute
@@ -184,6 +191,13 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 	result.PCRs = validationResult.Document.PCRs
 	result.UserData = validationResult.Document.UserData
 	result.AttestationDocument = validationResult.Document
+
+	// Validate appAttestation.PublicKey hex shape before the cross-field
+	// binding below, so a malformed encoding surfaces as a decode error
+	// rather than as a misleading "PublicKey mismatch".
+	if _, err := hex.DecodeString(appAttestation.PublicKey); err != nil {
+		return nil, fmt.Errorf("failed to decode public key hex: %w", err)
+	}
 
 	// Bind the public_key embedded in the attestation document to the
 	// public key the enclave reports in the app attestation. They must

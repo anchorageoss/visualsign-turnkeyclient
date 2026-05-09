@@ -879,3 +879,57 @@ func TestVerifyResponse_NilResponse(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "non-nil SignablePayloadResponse")
 }
+
+// TestVerifyResponse_InvalidMessageHex confirms a malformed
+// appAttestation.Message surfaces as a hex decode error, not as a
+// misleading Borsh "Message mismatch".
+func TestVerifyResponse_InvalidMessageHex(t *testing.T) {
+	pubKeyBytes, _ := create130BytePublicKey(t)
+	validKey260 := hex.EncodeToString(pubKeyBytes)
+	appAttJSON := fmt.Sprintf(`{"message":"ZZZZZ","publicKey":"%s","signature":"%s"}`, validKey260, strings.Repeat("ab", 64))
+	bootAttestationB64 := base64.StdEncoding.EncodeToString([]byte("boot-doc"))
+
+	response := &api.SignablePayloadResponse{
+		SignablePayload: "test-payload",
+		Attestations: map[api.AttestationType]string{
+			api.AppAttestationKey:  appAttJSON,
+			api.BootAttestationKey: bootAttestationB64,
+		},
+	}
+
+	service := NewService(nil, &mockAttestationVerifier{})
+	_, err := service.VerifyResponse(context.Background(), response, &VerifyResponseRequest{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to decode message hex")
+}
+
+// TestVerifyResponse_InvalidPublicKeyHex confirms a malformed
+// appAttestation.PublicKey surfaces as a hex decode error, not as a
+// misleading cross-field "PublicKey mismatch".
+func TestVerifyResponse_InvalidPublicKeyHex(t *testing.T) {
+	messageHex := expectedMessageHex(t, "test-payload", "", "")
+	appAttJSON := fmt.Sprintf(`{"message":"%s","publicKey":"ZZZZ","signature":"%s"}`, messageHex, strings.Repeat("ab", 64))
+	bootAttestationB64 := base64.StdEncoding.EncodeToString([]byte("boot-doc"))
+
+	response := &api.SignablePayloadResponse{
+		SignablePayload: "test-payload",
+		Attestations: map[api.AttestationType]string{
+			api.AppAttestationKey:  appAttJSON,
+			api.BootAttestationKey: bootAttestationB64,
+		},
+	}
+
+	mockVerifier := &mockAttestationVerifier{
+		result: &nitroverifier.ValidationResult{
+			Valid: true,
+			Document: &nitroverifier.AttestationDocument{
+				PublicKey: []byte{0xde, 0xad}, // any non-empty bytes; check fires before length matters
+			},
+		},
+	}
+
+	service := NewService(nil, mockVerifier)
+	_, err := service.VerifyResponse(context.Background(), response, &VerifyResponseRequest{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to decode public key hex")
+}
