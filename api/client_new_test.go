@@ -474,3 +474,96 @@ func TestGetBootAttestation(t *testing.T) {
 		require.Contains(t, err.Error(), "failed to decode")
 	})
 }
+
+// TestCreateSignablePayload_ChainMetadata verifies that ChainMetadata is
+// included in the serialized HTTP body when set, and omitted when nil.
+func TestCreateSignablePayload_ChainMetadata(t *testing.T) {
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	makeClient := func() (*Client, *mockHTTPClient) {
+		response := TurnkeyVisualSignResponse{}
+		response.Response.ParsedTransaction.Payload.SignablePayload = "ok"
+		body, _ := json.Marshal(response)
+		mock := &mockHTTPClient{response: &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(body)),
+		}}
+		c := &Client{
+			HostURI:              "https://api.turnkey.com",
+			HTTPClient:           mock,
+			VisualSignAPIVersion: "v2",
+			APIKey: &TurnkeyAPIKey{
+				PublicKey:      "test-public-key",
+				PrivateKey:     privKey,
+				OrganizationID: "test-org",
+			},
+		}
+		return c, mock
+	}
+
+	t.Run("chain_metadata included in body when set", func(t *testing.T) {
+		c, mock := makeClient()
+		networkID := "1"
+		req := &CreateSignablePayloadRequest{
+			UnsignedPayload: "payload",
+			Chain:           "CHAIN_ETHEREUM",
+			ChainMetadata: &RequestChainMetadata{
+				Ethereum: &EthereumChainMetadata{
+					NetworkID: &networkID,
+					ABIMappings: map[string]ABIValue{
+						"0xContractAddr": {Value: `[{"name":"transfer"}]`},
+					},
+				},
+			},
+		}
+
+		_, err := c.CreateSignablePayload(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, mock.lastRequest)
+
+		bodyBytes, err := io.ReadAll(mock.lastRequest.Body)
+		require.NoError(t, err)
+
+		var parsed map[string]interface{}
+		require.NoError(t, json.Unmarshal(bodyBytes, &parsed))
+
+		reqField, ok := parsed["request"].(map[string]interface{})
+		require.True(t, ok, "expected 'request' field in body")
+
+		chainMeta, ok := reqField["chain_metadata"].(map[string]interface{})
+		require.True(t, ok, "expected 'chain_metadata' in request body")
+
+		eth, ok := chainMeta["ethereum"].(map[string]interface{})
+		require.True(t, ok, "expected 'ethereum' inside chain_metadata")
+
+		abiMappings, ok := eth["abiMappings"].(map[string]interface{})
+		require.True(t, ok, "expected 'abiMappings' inside ethereum")
+		require.Contains(t, abiMappings, "0xContractAddr")
+	})
+
+	t.Run("chain_metadata omitted from body when nil", func(t *testing.T) {
+		c, mock := makeClient()
+		req := &CreateSignablePayloadRequest{
+			UnsignedPayload: "payload",
+			Chain:           "CHAIN_SOLANA",
+			ChainMetadata:   nil,
+		}
+
+		_, err := c.CreateSignablePayload(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, mock.lastRequest)
+
+		bodyBytes, err := io.ReadAll(mock.lastRequest.Body)
+		require.NoError(t, err)
+
+		var parsed map[string]interface{}
+		require.NoError(t, json.Unmarshal(bodyBytes, &parsed))
+
+		reqField, ok := parsed["request"].(map[string]interface{})
+		require.True(t, ok)
+
+		_, hasChainMeta := reqField["chain_metadata"]
+		require.False(t, hasChainMeta, "chain_metadata should be absent when nil")
+	})
+}

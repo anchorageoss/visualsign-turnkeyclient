@@ -233,6 +233,41 @@ func TestVerifyUserData(t *testing.T) {
 	})
 }
 
+// TestVerifyChainMetadataRequiresChain ensures that setting ChainMetadata
+// without an explicit Chain returns an error rather than silently defaulting
+// to CHAIN_SOLANA.
+func TestVerifyChainMetadataRequiresChain(t *testing.T) {
+	service := NewService(&mockAPIClient{}, &mockAttestationVerifier{})
+	networkID := "1"
+	req := &VerifyRequest{
+		UnsignedPayload: "unsigned-payload",
+		// Chain intentionally empty
+		ChainMetadata: &api.RequestChainMetadata{
+			Ethereum: &api.EthereumChainMetadata{NetworkID: &networkID},
+		},
+	}
+	_, err := service.Verify(context.Background(), req)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "chain must be specified")
+}
+
+// TestVerifyEthereumMetadataRequiresEthereumChain ensures that providing
+// Ethereum chain metadata alongside a non-Ethereum chain returns an error.
+func TestVerifyEthereumMetadataRequiresEthereumChain(t *testing.T) {
+	service := NewService(&mockAPIClient{}, &mockAttestationVerifier{})
+	networkID := "1"
+	req := &VerifyRequest{
+		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
+		ChainMetadata: &api.RequestChainMetadata{
+			Ethereum: &api.EthereumChainMetadata{NetworkID: &networkID},
+		},
+	}
+	_, err := service.Verify(context.Background(), req)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ChainMetadata.Ethereum requires an Ethereum chain")
+}
+
 // Test Verify - API error
 func TestVerifyAPIError(t *testing.T) {
 	mockAPI := &mockAPIClient{err: fmt.Errorf("API error")}
@@ -687,5 +722,54 @@ func TestProcessManifest(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result.Manifest)
 		require.NotEmpty(t, result.Manifest.Namespace.Name)
+	})
+}
+
+// TestCheckMetadataDigest verifies the metadataDigest assertion rules.
+func TestCheckMetadataDigest(t *testing.T) {
+	t.Run("no chain_metadata, empty digest: ok", func(t *testing.T) {
+		require.NoError(t, checkMetadataDigest("", nil))
+	})
+
+	t.Run("no chain_metadata, digest matches empty SHA-256: ok", func(t *testing.T) {
+		require.NoError(t, checkMetadataDigest(emptyMetadataDigestHex, nil))
+	})
+
+	t.Run("no chain_metadata, unexpected digest: error", func(t *testing.T) {
+		err := checkMetadataDigest("aabbccdd", nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "metadataDigest mismatch")
+	})
+
+	t.Run("chain_metadata sent, matching digest: ok", func(t *testing.T) {
+		networkID := "ETHEREUM_MAINNET"
+		meta := &api.RequestChainMetadata{
+			Ethereum: &api.EthereumChainMetadata{
+				NetworkID: &networkID,
+				ABIMappings: map[string]api.ABIValue{
+					"0xContract": {Value: `[{"name":"transfer"}]`},
+				},
+			},
+		}
+		digest, err := meta.MetadataDigestHex()
+		require.NoError(t, err)
+		require.NoError(t, checkMetadataDigest(digest, meta))
+	})
+
+	t.Run("chain_metadata sent, wrong digest: error", func(t *testing.T) {
+		networkID := "ETHEREUM_MAINNET"
+		meta := &api.RequestChainMetadata{
+			Ethereum: &api.EthereumChainMetadata{NetworkID: &networkID},
+		}
+		err := checkMetadataDigest("deadbeef", meta)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "metadataDigest mismatch")
+	})
+
+	t.Run("chain_metadata sent, empty digest: ok", func(t *testing.T) {
+		meta := &api.RequestChainMetadata{
+			Ethereum: &api.EthereumChainMetadata{},
+		}
+		require.NoError(t, checkMetadataDigest("", meta))
 	})
 }

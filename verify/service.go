@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 
 	nitroverifier "github.com/anchorageoss/awsnitroverifier"
 	"github.com/anchorageoss/visualsign-turnkeyclient/api"
@@ -53,11 +54,20 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	// Step 1: Call API to get signable payload and attestations
 	chain := req.Chain
 	if chain == "" {
+		if req.ChainMetadata != nil {
+			return nil, fmt.Errorf("chain must be specified when ChainMetadata is set")
+		}
 		chain = "CHAIN_SOLANA" // default to Solana if not specified
+	}
+	if req.ChainMetadata != nil && req.ChainMetadata.Ethereum != nil {
+		if !strings.HasPrefix(chain, "CHAIN_ETHEREUM") {
+			return nil, fmt.Errorf("ChainMetadata.Ethereum requires an Ethereum chain, got %q", chain)
+		}
 	}
 	apiReq := &api.CreateSignablePayloadRequest{
 		UnsignedPayload: req.UnsignedPayload,
 		Chain:           chain,
+		ChainMetadata:   req.ChainMetadata,
 	}
 
 	response, err := s.apiClient.CreateSignablePayload(ctx, apiReq)
@@ -94,8 +104,11 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 	// our inputs. See visualsign-parser's src/parser/app/src/routes/parse.rs:
 	//   input_payload_digest = sha256(unsigned_payload_string_bytes)
 	//   metadata_digest      = sha256(borsh_encode(chain_metadata))
-	// This client does not send chain_metadata, so the expected metadata
-	// digest is the SHA-256 of an empty byte slice.
+	// When chain_metadata is nil the expected metadata digest is SHA-256("").
+	// When chain_metadata is non-nil the expected digest is SHA-256(Borsh(chain_metadata)),
+	// computed locally via RequestChainMetadata.MetadataDigestHex().
+	// Digest verification is skipped when the backend omits the field (empty string),
+	// consistent with how InputPayloadDigest is handled above.
 	if response.InputPayloadDigest != "" {
 		computed := manifest.ComputeHash([]byte(req.UnsignedPayload))
 		if computed != response.InputPayloadDigest {
@@ -103,9 +116,8 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 				response.InputPayloadDigest, computed)
 		}
 	}
-	if response.MetadataDigest != "" && response.MetadataDigest != emptyMetadataDigestHex {
-		return nil, fmt.Errorf("metadataDigest mismatch: backend reported %s, expected %s (client sends no chain_metadata)",
-			response.MetadataDigest, emptyMetadataDigestHex)
+	if err := checkMetadataDigest(response.MetadataDigest, apiReq.ChainMetadata); err != nil {
+		return nil, err
 	}
 
 	bootAttestationDocBytes, err := base64.StdEncoding.DecodeString(bootAttestationDoc)
@@ -394,6 +406,31 @@ type AppAttestation struct {
 	Signature string `json:"signature"`
 }
 
-// emptyMetadataDigestHex is SHA-256(""), the digest the visualsign parser
-// produces when no chain_metadata is supplied (Borsh-encoded empty vec).
-const emptyMetadataDigestHex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+// emptyMetadataDigestHex is SHA-256 of an empty byte slice. The visualsign
+// parser produces this digest when no chain_metadata is supplied.
+var emptyMetadataDigestHex = manifest.ComputeHash([]byte{})
+
+// checkMetadataDigest validates the metadataDigest from the backend.
+// Best-effort: an empty digest means the backend omitted the field (older versions)
+// and the check is skipped.
+func checkMetadataDigest(digest string, chainMetadata *api.RequestChainMetadata) error {
+	if digest == "" {
+		return nil
+	}
+	if chainMetadata == nil {
+		if digest != emptyMetadataDigestHex {
+			return fmt.Errorf("metadataDigest mismatch: backend reported %s, expected %s (client sent no chain_metadata)",
+				digest, emptyMetadataDigestHex)
+		}
+		return nil
+	}
+	expected, err := chainMetadata.MetadataDigestHex()
+	if err != nil {
+		return fmt.Errorf("failed to compute expected metadataDigest: %w", err)
+	}
+	if digest != expected {
+		return fmt.Errorf("metadataDigest mismatch: backend reported %s, computed %s",
+			digest, expected)
+	}
+	return nil
+}

@@ -70,6 +70,10 @@ func VerifyCommand() *cli.Command {
 				Usage: "VisualSign API version (v1 or v2)",
 				Value: "v2",
 			},
+			&cli.StringFlag{
+				Name:  "chain-metadata",
+				Usage: `Chain metadata JSON (e.g. {"ethereum":{"abiMappings":{"0xAddr":{"value":"[...]"}}}})`,
+			},
 		},
 		Action: runVerifyCommand,
 	}
@@ -87,6 +91,7 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 	chain := cmd.String("chain")
 	debug := cmd.Bool("debug")
 	pcrsSpec := cmd.String("pcrs")
+	chainMetadataJSON := cmd.String("chain-metadata")
 
 	// Parse PCR rules if provided
 	pcrRules, err := ParsePCRs(pcrsSpec)
@@ -118,6 +123,14 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 	// Create verification service
 	service := verify.NewService(apiClient, verifier)
 
+	var chainMetadata *api.RequestChainMetadata
+	if chainMetadataJSON != "" {
+		chainMetadata = &api.RequestChainMetadata{}
+		if err := json.Unmarshal([]byte(chainMetadataJSON), chainMetadata); err != nil {
+			return fmt.Errorf("invalid --chain-metadata JSON: %w", err)
+		}
+	}
+
 	// Perform verification
 	result, err := service.Verify(ctx, &verify.VerifyRequest{
 		UnsignedPayload:    unsignedPayload,
@@ -125,6 +138,7 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 		PivotBinaryHashHex: pivotBinaryHashHex,
 		SaveManifestPath:   saveManifestPath,
 		Chain:              chain,
+		ChainMetadata:      chainMetadata,
 	})
 	if err != nil {
 		return fmt.Errorf("verification failed: %w", err)

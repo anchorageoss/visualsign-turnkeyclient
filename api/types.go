@@ -40,6 +40,54 @@ type TurnkeyAPIKey struct {
 	OrganizationID string
 }
 
+// SignatureKV is a key-value metadata entry attached to an ABISignature.
+// Standard keys: "algorithm" ("secp256k1" or "ed25519"), "public_key" (hex),
+// "issuer" (address), "timestamp" (unix epoch string).
+type SignatureKV struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// ABISignature is an optional cryptographic signature over an ABI definition.
+// Value is the hex-encoded signature over the ABI JSON content.
+// Metadata carries algorithm, public key, and any other attestation fields.
+// Use NewABISignature to construct with the standard metadata layout.
+type ABISignature struct {
+	Value    string        `json:"value"`
+	Metadata []SignatureKV `json:"metadata,omitempty"`
+}
+
+// NewABISignature constructs an ABISignature with the standard metadata fields.
+// value is the hex-encoded signature over the ABI JSON string.
+// algorithm is the signing algorithm, e.g. "secp256k1" or "ed25519".
+// publicKey is the hex-encoded public key of the signer.
+// extra adds any additional metadata entries (e.g. "issuer", "timestamp").
+func NewABISignature(value, algorithm, publicKey string, extra ...SignatureKV) *ABISignature {
+	kvs := make([]SignatureKV, 0, 2+len(extra))
+	kvs = append(kvs, SignatureKV{Key: "algorithm", Value: algorithm})
+	kvs = append(kvs, SignatureKV{Key: "public_key", Value: publicKey})
+	kvs = append(kvs, extra...)
+	return &ABISignature{Value: value, Metadata: kvs}
+}
+
+// ABIValue holds a JSON-encoded ABI definition and an optional signature.
+type ABIValue struct {
+	Value     string        `json:"value"`
+	Signature *ABISignature `json:"signature,omitempty"`
+}
+
+// EthereumChainMetadata carries optional ABI mappings for Ethereum parse requests.
+// ABIMappings maps 0x-prefixed contract address to its ABI JSON.
+type EthereumChainMetadata struct {
+	NetworkID   *string             `json:"networkId,omitempty"`
+	ABIMappings map[string]ABIValue `json:"abiMappings,omitempty"`
+}
+
+// RequestChainMetadata is the chain_metadata field in the Turnkey parse request.
+type RequestChainMetadata struct {
+	Ethereum *EthereumChainMetadata `json:"ethereum,omitempty"`
+}
+
 // TurnkeyStamp represents the stamp structure for API key authentication
 type TurnkeyStamp struct {
 	PublicKey string `json:"publicKey"`
@@ -50,8 +98,9 @@ type TurnkeyStamp struct {
 // TurnkeyVisualSignRequest represents the request to Turnkey's visualsign API
 type TurnkeyVisualSignRequest struct {
 	Request struct {
-		UnsignedPayload string `json:"unsigned_payload"`
-		Chain           string `json:"chain"`
+		UnsignedPayload string                `json:"unsigned_payload"`
+		Chain           string                `json:"chain"`
+		ChainMetadata   *RequestChainMetadata `json:"chain_metadata,omitempty"`
 	} `json:"request"`
 	OrganizationID string `json:"organization_id"`
 }
