@@ -411,11 +411,8 @@ type AppAttestation struct {
 var emptyMetadataDigestHex = manifest.ComputeHash([]byte{})
 
 // checkMetadataDigest validates the metadataDigest from the backend.
-// Verification is best-effort: when digest is empty the backend did not return
-// the field (older versions) and the check is skipped regardless of chainMetadata.
-// When digest is non-empty and chainMetadata is nil, the expected value is SHA-256("").
-// When digest is non-empty and chainMetadata is non-nil, the expected value is
-// SHA-256(Borsh(chainMetadata)), computed via chainMetadata.MetadataDigestHex().
+// Best-effort: an empty digest means the backend omitted the field (older versions)
+// and the check is skipped.
 func checkMetadataDigest(digest string, chainMetadata *api.RequestChainMetadata) error {
 	if digest == "" {
 		return nil
