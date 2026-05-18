@@ -735,11 +735,16 @@ func TestCheckMetadataDigest(t *testing.T) {
 		require.Contains(t, err.Error(), "metadataDigest mismatch")
 	})
 
-	t.Run("chain_metadata sent, empty digest: ok", func(t *testing.T) {
+	t.Run("chain_metadata sent, empty digest: error", func(t *testing.T) {
+		// When the client ships ChainMetadata, the recompute-and-compare check
+		// the PR is designed to enforce must run. A missing backend digest here
+		// would silently downgrade verification, so we require the digest.
 		meta := &api.RequestChainMetadata{
 			Ethereum: &api.EthereumChainMetadata{},
 		}
-		require.NoError(t, checkMetadataDigest("", meta))
+		err := checkMetadataDigest("", meta)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "backend did not return metadataDigest")
 	})
 }
 

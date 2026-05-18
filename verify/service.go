@@ -138,9 +138,11 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 	// When chain_metadata is nil the expected metadata digest is SHA-256("").
 	// When chain_metadata is non-nil the expected digest is SHA-256(Borsh(chain_metadata)),
 	// computed locally via RequestChainMetadata.MetadataDigestHex().
-	// Digest verification is skipped when the backend omits the field (empty string),
-	// or when UnsignedPayload is not provided (backend integration path where the
-	// original unsigned bytes are not available locally).
+	// InputPayloadDigest is best-effort: skipped when the backend omits the
+	// field, or when UnsignedPayload is not provided (backend integration path
+	// where the original unsigned bytes are not available locally).
+	// MetadataDigest is strict when the client sent ChainMetadata — see
+	// checkMetadataDigest.
 	if response.InputPayloadDigest != "" && req.UnsignedPayload != "" {
 		computed := manifest.ComputeHash([]byte(req.UnsignedPayload))
 		if computed != response.InputPayloadDigest {
@@ -479,18 +481,27 @@ type AppAttestation struct {
 var emptyMetadataDigestHex = manifest.ComputeHash([]byte{})
 
 // checkMetadataDigest validates the metadataDigest from the backend.
-// Best-effort: an empty digest means the backend omitted the field (older versions)
-// and the check is skipped.
+//
+// When the client sends ChainMetadata, the backend MUST return a non-empty
+// metadataDigest so the recompute-and-compare check can run; an empty digest
+// here would silently skip verification of exactly the field the caller asked
+// us to verify.
+//
+// When the client sends no ChainMetadata, an empty digest is treated as the
+// backend omitting an optional field (older versions) and the check is skipped.
 func checkMetadataDigest(digest string, chainMetadata *api.RequestChainMetadata) error {
-	if digest == "" {
-		return nil
-	}
 	if chainMetadata == nil {
+		if digest == "" {
+			return nil
+		}
 		if digest != emptyMetadataDigestHex {
 			return fmt.Errorf("metadataDigest mismatch: backend reported %s, expected %s (client sent no chain_metadata)",
 				digest, emptyMetadataDigestHex)
 		}
 		return nil
+	}
+	if digest == "" {
+		return fmt.Errorf("backend did not return metadataDigest but client sent chain_metadata; cannot verify ABI round-trip")
 	}
 	expected, err := chainMetadata.MetadataDigestHex()
 	if err != nil {
