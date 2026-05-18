@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"sort"
 
 	borsh "github.com/near/borsh-go"
 
@@ -30,9 +31,20 @@ type borshMetadataEnum struct {
 
 // borshEthereumMetadata mirrors parser.rs EthereumMetadata.
 // Field order must match the Rust struct declaration.
+//
+// ABIMappings is wire-compatible with Rust's HashMap<String, Abi>: Borsh encodes
+// both as `u32 length || sorted [key, value] pairs`. We materialize the sort
+// explicitly here rather than rely on borsh-go's internal map handling.
 type borshEthereumMetadata struct {
-	NetworkID   *string             // Option<String>
-	ABIMappings map[string]borshAbi // HashMap<String, Abi> — borsh-go sorts keys lexicographically
+	NetworkID   *string         // Option<String>
+	ABIMappings []borshAbiEntry // serialized as HashMap<String, Abi> — sorted by Address
+}
+
+// borshAbiEntry is one (address, ABI) pair in ABIMappings. The field order
+// (Address then Abi) must match Rust's tuple/HashMap entry layout.
+type borshAbiEntry struct {
+	Address string
+	Abi     borshAbi
 }
 
 // borshAbi mirrors parser.rs Abi.
@@ -84,19 +96,25 @@ func (r *RequestChainMetadata) toBorshChainMetadata() borshChainMetadata {
 		return borshChainMetadata{Metadata: nil}
 	}
 	eth := r.Ethereum
-	abiMappings := make(map[string]borshAbi, len(eth.ABIMappings))
+	entries := make([]borshAbiEntry, 0, len(eth.ABIMappings))
 	for addr, abi := range eth.ABIMappings {
-		abiMappings[addr] = borshAbi{
-			Value:     abi.Value,
-			Signature: toBorshSignature(abi.Signature),
-		}
+		entries = append(entries, borshAbiEntry{
+			Address: addr,
+			Abi: borshAbi{
+				Value:     abi.Value,
+				Signature: toBorshSignature(abi.Signature),
+			},
+		})
 	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Address < entries[j].Address
+	})
 	return borshChainMetadata{
 		Metadata: &borshMetadataEnum{
 			Enum: ethereumVariant,
 			Ethereum: borshEthereumMetadata{
 				NetworkID:   eth.NetworkID,
-				ABIMappings: abiMappings,
+				ABIMappings: entries,
 			},
 		},
 	}
