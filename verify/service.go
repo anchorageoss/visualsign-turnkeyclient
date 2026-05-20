@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdh"
 	"crypto/ecdsa"
@@ -50,6 +51,9 @@ func NewService(apiClient APIClient, attestationVerifier AttestationVerifier) *S
 func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult, error) {
 	if s.apiClient == nil {
 		return nil, errors.New("Verify requires an APIClient; use VerifyResponse for pre-fetched responses")
+	}
+	if req == nil {
+		return nil, errors.New("Verify requires a non-nil VerifyRequest")
 	}
 
 	chain := req.Chain
@@ -152,14 +156,20 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 	// metadataDigest) by recomputing the Borsh ParsedTransactionPayload hash.
 	// Without this, an attacker controlling the transport could substitute
 	// signablePayload while keeping a valid signature over an unrelated
-	// message hash.
+	// message hash. Compare as bytes so the binding is insensitive to
+	// hex casing and surfaces a clean decode error on malformed input.
 	expectedMsg, err := ComputeBorshParsedTransactionPayloadHash(
 		response.SignablePayload, response.InputPayloadDigest, response.MetadataDigest,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("compute borsh parsed transaction payload hash: %w", err)
 	}
-	if appAttestation.Message != expectedMsg {
+	actualMsgBytes, err := hex.DecodeString(appAttestation.Message)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode message hex: %w", err)
+	}
+	expectedMsgBytes, _ := hex.DecodeString(expectedMsg) // safe: just produced by hex.EncodeToString
+	if !bytes.Equal(expectedMsgBytes, actualMsgBytes) {
 		return nil, fmt.Errorf("appAttestation.Message mismatch: enclave reported %s, recomputed %s",
 			appAttestation.Message, expectedMsg)
 	}
@@ -187,11 +197,16 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 
 	// Bind the public_key embedded in the attestation document to the
 	// public key the enclave reports in the app attestation. They must
-	// reference the same ephemeral key.
-	attestationPubKeyHex := hex.EncodeToString(validationResult.Document.PublicKey)
-	if appAttestation.PublicKey != attestationPubKeyHex {
+	// reference the same ephemeral key. Compare as bytes so the binding
+	// is insensitive to hex casing and surfaces a clean decode error on
+	// malformed input.
+	actualPubKeyBytes, err := hex.DecodeString(appAttestation.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode public key hex: %w", err)
+	}
+	if !bytes.Equal(actualPubKeyBytes, validationResult.Document.PublicKey) {
 		return nil, fmt.Errorf("appAttestation.PublicKey mismatch: attestation document %s, app %s",
-			attestationPubKeyHex, appAttestation.PublicKey)
+			hex.EncodeToString(validationResult.Document.PublicKey), appAttestation.PublicKey)
 	}
 
 	// Capture PCR validation results if any PCR rules were provided

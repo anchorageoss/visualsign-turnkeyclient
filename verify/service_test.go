@@ -788,6 +788,30 @@ func TestVerifyResponse(t *testing.T) {
 			docPubKey:       realKeyBytes,
 			wantErr:         "appAttestation.PublicKey mismatch",
 		},
+		{
+			name:            "malformed appAttestation.Message surfaces as decode error",
+			signablePayload: "test-payload",
+			appMsg:          "ZZZZZ",
+			appPubKey:       realKeyHex,
+			docPubKey:       realKeyBytes,
+			wantErr:         "failed to decode message hex",
+		},
+		{
+			name:            "malformed appAttestation.PublicKey surfaces as decode error",
+			signablePayload: "test-payload",
+			appMsg:          goodMsg,
+			appPubKey:       "ZZZZ",
+			docPubKey:       realKeyBytes,
+			wantErr:         "failed to decode public key hex",
+		},
+		{
+			name:            "uppercase appAttestation.Message still matches (case-insensitive binding)",
+			signablePayload: "test-payload",
+			appMsg:          strings.ToUpper(goodMsg),
+			appPubKey:       realKeyHex,
+			docPubKey:       realKeyBytes,
+			wantErr:         "signature verification failed", // passes binding, fails at signature step
+		},
 	}
 
 	for _, tc := range tests {
@@ -813,13 +837,22 @@ func TestVerifyResponse(t *testing.T) {
 	}
 }
 
-// TestVerify_NilAPIClient confirms Verify rejects a missing APIClient
-// before attempting a nil-deref dispatch.
-func TestVerify_NilAPIClient(t *testing.T) {
-	service := NewService(nil, &mockAttestationVerifier{})
-	_, err := service.Verify(context.Background(), &VerifyRequest{UnsignedPayload: "x"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "Verify requires an APIClient")
+// TestVerify_NilArgs guards Verify's non-nil preconditions on APIClient
+// and VerifyRequest.
+func TestVerify_NilArgs(t *testing.T) {
+	t.Run("nil APIClient", func(t *testing.T) {
+		service := NewService(nil, &mockAttestationVerifier{})
+		_, err := service.Verify(context.Background(), &VerifyRequest{UnsignedPayload: "x"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Verify requires an APIClient")
+	})
+
+	t.Run("nil VerifyRequest", func(t *testing.T) {
+		service := NewService(&mockAPIClient{}, &mockAttestationVerifier{})
+		_, err := service.Verify(context.Background(), nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "non-nil VerifyRequest")
+	})
 }
 
 // TestVerifyResponse_NilArgs guards the two non-nil preconditions.
