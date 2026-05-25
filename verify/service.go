@@ -199,16 +199,27 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 
 	// Bind the public_key embedded in the attestation document to the
 	// public key the enclave reports in the app attestation. They must
-	// reference the same ephemeral key. Compare as bytes so the binding
-	// is insensitive to hex casing and surfaces a clean decode error on
-	// malformed input.
+	// reference the same ephemeral key. Normalise both to the 65-byte
+	// SEC1 uncompressed form (0x04 || X || Y) before comparing: the app
+	// attestation packs 130 bytes (a prefix concatenated with SEC1), while
+	// the Nitro attestation document's public_key field is typically the
+	// 65-byte SEC1 key alone. Comparing the raw byte slices would reject
+	// legitimate responses whenever those representations differ.
 	actualPubKeyBytes, err := hex.DecodeString(appAttestation.PublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode public key hex: %w", err)
 	}
-	if !bytes.Equal(actualPubKeyBytes, validationResult.Document.PublicKey) {
+	appSEC1, err := sec1FromAppPubKey(actualPubKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("app attestation public key: %w", err)
+	}
+	docSEC1, err := sec1FromDocPubKey(validationResult.Document.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("attestation document public key: %w", err)
+	}
+	if !bytes.Equal(appSEC1, docSEC1) {
 		return nil, fmt.Errorf("appAttestation.PublicKey mismatch: attestation document %s, app %s",
-			hex.EncodeToString(validationResult.Document.PublicKey), appAttestation.PublicKey)
+			hex.EncodeToString(docSEC1), hex.EncodeToString(appSEC1))
 	}
 
 	// Capture PCR validation results if any PCR rules were provided
@@ -309,6 +320,37 @@ func (s *Service) extractAttestations(response *api.SignablePayloadResponse) (*A
 	}
 
 	return &appAttestation, bootAttestationDoc, nil
+}
+
+// sec1FromAppPubKey normalises the public_key field reported by the enclave
+// in its app attestation (130 bytes: prefix || SEC1) down to the 65-byte
+// SEC1 uncompressed form.
+func sec1FromAppPubKey(b []byte) ([]byte, error) {
+	if len(b) != 130 {
+		return nil, fmt.Errorf("expected 130-byte app public key, got %d bytes", len(b))
+	}
+	sec1 := b[65:]
+	if sec1[0] != 0x04 {
+		return nil, fmt.Errorf("expected uncompressed SEC1 prefix (0x04), got 0x%02x", sec1[0])
+	}
+	return sec1, nil
+}
+
+// sec1FromDocPubKey normalises the public_key field of the Nitro attestation
+// document. The enclave may store the 65-byte SEC1 key directly, or the same
+// 130-byte form used by the app attestation; accept either and return SEC1.
+func sec1FromDocPubKey(b []byte) ([]byte, error) {
+	switch len(b) {
+	case 65:
+		if b[0] != 0x04 {
+			return nil, fmt.Errorf("expected uncompressed SEC1 prefix (0x04), got 0x%02x", b[0])
+		}
+		return b, nil
+	case 130:
+		return sec1FromAppPubKey(b)
+	default:
+		return nil, fmt.Errorf("expected 65- or 130-byte public key, got %d bytes", len(b))
+	}
 }
 
 // extractPublicKey extracts the 65-byte public key from the 130-byte hex string

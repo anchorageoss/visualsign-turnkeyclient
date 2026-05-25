@@ -441,13 +441,24 @@ func TestVerifyMissingAttestations(t *testing.T) {
 
 // Test Verify - invalid public key in attestation
 func TestVerifyInvalidPublicKey(t *testing.T) {
-	appAttJSON := `{"message":"deadbeef","publicKey":"invalidkey","signature":"` + strings.Repeat("ab", 64) + `"}`
+	// 130-byte buffer whose SEC1 half has the valid 0x04 prefix but X,Y = 0.
+	// That clears both the Borsh message check and the pubkey-binding check
+	// (Document.PublicKey is set to the same bytes), so failure surfaces in
+	// extractPublicKey's on-curve check — the path this test is named for.
+	invalidPubKey := make([]byte, 130)
+	invalidPubKey[65] = 0x04
+	invalidPubKeyHex := hex.EncodeToString(invalidPubKey)
+	messageHex := expectedMessageHex(t, "test-payload", "", "")
+	bootAttestationB64 := base64.StdEncoding.EncodeToString([]byte("boot-doc"))
+
+	appAttJSON := fmt.Sprintf(`{"message":"%s","publicKey":"%s","signature":"%s"}`,
+		messageHex, invalidPubKeyHex, strings.Repeat("ab", 64))
 
 	apiResponse := &api.SignablePayloadResponse{
 		SignablePayload: "test-payload",
 		Attestations: map[api.AttestationType]string{
 			api.AppAttestationKey:  appAttJSON,
-			api.BootAttestationKey: "boot-doc",
+			api.BootAttestationKey: bootAttestationB64,
 		},
 	}
 
@@ -456,9 +467,10 @@ func TestVerifyInvalidPublicKey(t *testing.T) {
 		result: &nitroverifier.ValidationResult{
 			Valid: true,
 			Document: &nitroverifier.AttestationDocument{
-				ModuleID: "test-module",
-				PCRs:     map[uint][]byte{},
-				UserData: []byte{},
+				ModuleID:  "test-module",
+				PCRs:      map[uint][]byte{},
+				UserData:  []byte{},
+				PublicKey: invalidPubKey,
 			},
 		},
 	}
@@ -472,6 +484,7 @@ func TestVerifyInvalidPublicKey(t *testing.T) {
 	result, err := service.Verify(context.Background(), req)
 	require.Error(t, err)
 	require.Nil(t, result)
+	require.Contains(t, err.Error(), "not on the P256 curve")
 }
 
 // Test Verify - invalid signature hex.
