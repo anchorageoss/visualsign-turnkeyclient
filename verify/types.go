@@ -57,6 +57,22 @@ type VerifyRequest struct {
 	ChainMetadata *api.RequestChainMetadata
 }
 
+// VerifyResponseRequest carries the fields VerifyResponse needs that aren't
+// already in the SignablePayloadResponse. Use VerifyResponse when the
+// response was obtained out-of-band (e.g., a backend integration that
+// received a Turnkey response via another channel) and an APIClient call
+// is not desired.
+type VerifyResponseRequest struct {
+	UnsignedPayload    string
+	QosManifestHex     string
+	PivotBinaryHashHex string
+	SaveManifestPath   string
+	// ChainMetadata, when non-nil, is used to locally recompute the expected
+	// metadataDigest via Borsh encoding and compare against the value reported
+	// by the backend in SignablePayloadResponse.
+	ChainMetadata *api.RequestChainMetadata
+}
+
 // VerifyResult represents the result of verification
 type VerifyResult struct {
 	Valid                   bool                        `json:"valid"`
