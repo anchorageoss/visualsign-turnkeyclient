@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 )
 
 func strPtr(s string) *string { return &s }
@@ -152,4 +154,37 @@ func TestMetadataDigestHex_NilEthereum(t *testing.T) {
 	digest, err := meta.MetadataDigestHex()
 	require.NoError(t, err)
 	require.NotEmpty(t, digest)
+}
+
+// TestBorshBytes_MatchesDigest verifies that SHA256(BorshBytes()) equals
+// MetadataDigestHex() for the same input — they share the underlying
+// borsh::to_vec call and must stay in lockstep.
+func TestBorshBytes_MatchesDigest(t *testing.T) {
+	meta := &RequestChainMetadata{
+		Ethereum: &EthereumChainMetadata{
+			NetworkID: strPtr("ETHEREUM_MAINNET"),
+			ABIMappings: map[string]ABIValue{
+				"0xContract": {Value: `[{"name":"transfer"}]`},
+			},
+		},
+	}
+	bytes, err := meta.BorshBytes()
+	require.NoError(t, err)
+	require.NotEmpty(t, bytes)
+
+	digestFromBytes := manifest.ComputeHash(bytes)
+	digestFromHelper, err := meta.MetadataDigestHex()
+	require.NoError(t, err)
+	require.Equal(t, digestFromHelper, digestFromBytes,
+		"SHA256(BorshBytes()) must equal MetadataDigestHex()")
+}
+
+// TestBorshBytes_NilReceiver returns the Borsh encoding of
+// ChainMetadata{metadata: None} (= []byte{0x00}) without panicking.
+func TestBorshBytes_NilReceiver(t *testing.T) {
+	var r *RequestChainMetadata
+	bytes, err := r.BorshBytes()
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x00}, bytes,
+		"nil receiver must Borsh-encode as ChainMetadata{metadata: None} ([0x00])")
 }
