@@ -186,5 +186,5 @@ func TestBorshBytes_NilReceiver(t *testing.T) {
 	bytes, err := r.BorshBytes()
 	require.NoError(t, err)
 	require.Equal(t, []byte{0x00}, bytes,
-		"nil receiver must Borsh-encode as Option<ChainMetadata>::None ([0x00])")
+		"nil receiver must Borsh-encode as ChainMetadata{metadata: None} ([0x00])")
 }
