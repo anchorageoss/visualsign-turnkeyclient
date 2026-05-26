@@ -80,13 +80,26 @@ func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
 	return &borshSignatureMetadata{Value: s.Value, Metadata: kvs}
 }
 
-// MetadataDigestHex returns the hex-encoded SHA-256 of the Borsh encoding of r,
-// matching the metadata_digest the visualsign-parser computes for the same input.
-func (r *RequestChainMetadata) MetadataDigestHex() (string, error) {
+// BorshBytes returns borsh::to_vec(&chain_metadata) — the canonical bytes the
+// visualsign-parser hashes for metadata_digest. SHA256 of these bytes equals
+// MetadataDigestHex(). Anchorage's HSM uses these same bytes to self-verify the
+// digest off-chain (see PRS-192). For a nil or empty receiver, returns the
+// Borsh encoding of ChainMetadata{Metadata:None} ([]byte{0x00}).
+func (r *RequestChainMetadata) BorshBytes() ([]byte, error) {
 	cm := r.toBorshChainMetadata()
 	b, err := borsh.Serialize(cm)
 	if err != nil {
-		return "", fmt.Errorf("borsh-serialize chain_metadata: %w", err)
+		return nil, fmt.Errorf("borsh-serialize chain_metadata: %w", err)
+	}
+	return b, nil
+}
+
+// MetadataDigestHex returns the hex-encoded SHA-256 of the Borsh encoding of r,
+// matching the metadata_digest the visualsign-parser computes for the same input.
+func (r *RequestChainMetadata) MetadataDigestHex() (string, error) {
+	b, err := r.BorshBytes()
+	if err != nil {
+		return "", err
 	}
 	return manifest.ComputeHash(b), nil
 }
