@@ -82,8 +82,8 @@ func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
 
 // BorshBytes returns borsh::to_vec(&chain_metadata) — the canonical bytes the
 // visualsign-parser hashes for metadata_digest. SHA256 of these bytes equals
-// MetadataDigestHex(). Anchorage's HSM uses these same bytes to self-verify the
-// digest off-chain (see PRS-192). Returns the Borsh encoding of
+// MetadataDigestHex(). These bytes let a verifier recompute the digest
+// off-chain. Returns the Borsh encoding of
 // ChainMetadata{metadata: None} ([]byte{0x00}) when r is nil or r.Ethereum is nil.
 func (r *RequestChainMetadata) BorshBytes() ([]byte, error) {
 	cm := r.toBorshChainMetadata()
