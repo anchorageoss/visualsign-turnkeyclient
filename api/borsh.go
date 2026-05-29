@@ -47,10 +47,37 @@ type borshAbiEntry struct {
 	Abi     borshAbi
 }
 
-// borshAbi mirrors parser.rs Abi.
+// borshAbi mirrors parser.rs Abi. Field order matches the proto tag order
+// (value, signature, abi_type, implementation_address), which is the Rust struct
+// declaration order Borsh serializes in.
 type borshAbi struct {
-	Value     string
-	Signature *borshSignatureMetadata // Option<SignatureMetadata>
+	Value                 string
+	Signature             *borshSignatureMetadata // Option<SignatureMetadata>
+	AbiType               *int32                  // Option<i32> — proto enum number (prost enumeration)
+	ImplementationAddress *string                 // Option<String>
+}
+
+// abiTypeBorshNumber maps the wire string form of AbiType to the proto enum
+// number Borsh hashes. The parser sends the string over JSON but stores the
+// enum as i32, so the digest is computed over these numbers.
+var abiTypeBorshNumber = map[AbiType]int32{
+	AbiTypeUnspecified:    0,
+	AbiTypeImplementation: 1,
+	AbiTypeProxy:          2,
+}
+
+// toBorshAbiType converts an optional AbiType to its Borsh Option<i32> form.
+// nil maps to None (nil *int32). An unrecognized value is an error: a wrong
+// digest is worse than a failed call.
+func toBorshAbiType(t *AbiType) (*int32, error) {
+	if t == nil {
+		return nil, nil
+	}
+	n, ok := abiTypeBorshNumber[*t]
+	if !ok {
+		return nil, fmt.Errorf("unknown abi_type %q", *t)
+	}
+	return &n, nil
 }
 
 // borshSignatureMetadata mirrors parser.rs SignatureMetadata.
@@ -86,7 +113,10 @@ func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
 // verifier recompute the digest off-chain. Returns the Borsh encoding of
 // ChainMetadata{metadata: None} ([]byte{0x00}) when r is nil or r.Ethereum is nil.
 func (r *RequestChainMetadata) BorshBytes() ([]byte, error) {
-	cm := r.toBorshChainMetadata()
+	cm, err := r.toBorshChainMetadata()
+	if err != nil {
+		return nil, err
+	}
 	b, err := borsh.Serialize(cm)
 	if err != nil {
 		return nil, fmt.Errorf("borsh-serialize chain_metadata: %w", err)
@@ -104,18 +134,24 @@ func (r *RequestChainMetadata) MetadataDigestHex() (string, error) {
 	return manifest.ComputeHash(b), nil
 }
 
-func (r *RequestChainMetadata) toBorshChainMetadata() borshChainMetadata {
+func (r *RequestChainMetadata) toBorshChainMetadata() (borshChainMetadata, error) {
 	if r == nil || r.Ethereum == nil {
-		return borshChainMetadata{Metadata: nil}
+		return borshChainMetadata{Metadata: nil}, nil
 	}
 	eth := r.Ethereum
 	entries := make([]borshAbiEntry, 0, len(eth.ABIMappings))
 	for addr, abi := range eth.ABIMappings {
+		abiType, err := toBorshAbiType(abi.AbiType)
+		if err != nil {
+			return borshChainMetadata{}, fmt.Errorf("abi_mappings[%q]: %w", addr, err)
+		}
 		entries = append(entries, borshAbiEntry{
 			Address: addr,
 			Abi: borshAbi{
-				Value:     abi.Value,
-				Signature: toBorshSignature(abi.Signature),
+				Value:                 abi.Value,
+				Signature:             toBorshSignature(abi.Signature),
+				AbiType:               abiType,
+				ImplementationAddress: abi.ImplementationAddress,
 			},
 		})
 	}
@@ -130,5 +166,5 @@ func (r *RequestChainMetadata) toBorshChainMetadata() borshChainMetadata {
 				ABIMappings: entries,
 			},
 		},
-	}
+	}, nil
 }

@@ -70,10 +70,32 @@ func NewABISignature(value, algorithm, publicKey string, extra ...SignatureKV) *
 	return &ABISignature{Value: value, Metadata: kvs}
 }
 
-// ABIValue holds a JSON-encoded ABI definition and an optional signature.
+// AbiType mirrors parser.proto AbiType. It is sent on the JSON wire as the proto
+// enum name (e.g. "ABI_TYPE_PROXY"), matching the parser's serde representation.
+// The metadata digest hashes the underlying proto enum number, not this string;
+// see borsh.go.
+type AbiType string
+
+const (
+	// AbiTypeUnspecified is the proto default. The parser treats it as implementation.
+	AbiTypeUnspecified AbiType = "ABI_TYPE_UNSPECIFIED"
+	// AbiTypeImplementation marks an ABI that decodes calldata directly.
+	AbiTypeImplementation AbiType = "ABI_TYPE_IMPLEMENTATION"
+	// AbiTypeProxy marks a proxy contract whose calldata is decoded with the ABI
+	// at ImplementationAddress.
+	AbiTypeProxy AbiType = "ABI_TYPE_PROXY"
+)
+
+// ABIValue holds a JSON-encoded ABI definition and optional metadata.
 type ABIValue struct {
 	Value     string        `json:"value"`
 	Signature *ABISignature `json:"signature,omitempty"`
+	// AbiType classifies the ABI (implementation vs proxy). nil means the field is
+	// omitted (proto None); the parser treats an absent type as implementation.
+	AbiType *AbiType `json:"abiType,omitempty"`
+	// ImplementationAddress is, for proxies, the 0x-prefixed address whose ABI
+	// decodes the calldata. nil means the field is omitted (proto None).
+	ImplementationAddress *string `json:"implementationAddress,omitempty"`
 }
 
 // EthereumChainMetadata carries optional ABI mappings for Ethereum parse requests.
