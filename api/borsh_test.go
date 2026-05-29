@@ -8,16 +8,18 @@ import (
 	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 )
 
-func strPtr(s string) *string { return &s }
+func strPtr(s string) *string       { return &s }
+func abiTypePtr(t AbiType) *AbiType { return &t }
 
 // TestMetadataDigestHex_Fixture pins the Go Borsh encoding against a known digest
 // computed by the Rust visualsign-parser. To regenerate after a schema change:
 // in visualsign-parser, write a small Rust program that calls
 // borsh::to_vec(&ChainMetadata{...}) + sha256, with the same input as below.
 func TestMetadataDigestHex_Fixture(t *testing.T) {
-	// Input matches borsh_fixture.rs exactly:
+	// Input matches the Rust parser dump exactly:
 	//   network_id = "ETHEREUM_MAINNET"
-	//   abi_mappings = {"0xContract": Abi{value: `[{"name":"transfer"}]`, signature: None}}
+	//   abi_mappings = {"0xContract": Abi{value: `[{"name":"transfer"}]`,
+	//                   signature: None, abi_type: None, implementation_address: None}}
 	meta := &RequestChainMetadata{
 		Ethereum: &EthereumChainMetadata{
 			NetworkID: strPtr("ETHEREUM_MAINNET"),
@@ -28,7 +30,7 @@ func TestMetadataDigestHex_Fixture(t *testing.T) {
 	}
 	digest, err := meta.MetadataDigestHex()
 	require.NoError(t, err)
-	require.Equal(t, "801f265e405cdfa6435a30b09ccd72c6bd1535c8ac4b8dab7699d119a925b84d", digest,
+	require.Equal(t, "83f5cb4a471503d63778df7fffc8b6c1fd34126f876ef81e33aee3c556129091", digest,
 		"Borsh encoding diverged from Rust parser — update fixture or fix encoding")
 }
 
@@ -177,6 +179,55 @@ func TestBorshBytes_MatchesDigest(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, digestFromHelper, digestFromBytes,
 		"SHA256(BorshBytes()) must equal MetadataDigestHex()")
+}
+
+// TestMetadataDigestHex_AbiTypeAndImplAddress verifies the new Abi fields are
+// included in the digest and that nil (proto None) differs from an explicit
+// AbiTypeUnspecified (proto Some(0)) — they encode as distinct Borsh bytes.
+func TestMetadataDigestHex_AbiTypeAndImplAddress(t *testing.T) {
+	base := func(v ABIValue) *RequestChainMetadata {
+		return &RequestChainMetadata{
+			Ethereum: &EthereumChainMetadata{
+				ABIMappings: map[string]ABIValue{"0xContract": v},
+			},
+		}
+	}
+
+	none, err := base(ABIValue{Value: `[{"name":"transfer"}]`}).MetadataDigestHex()
+	require.NoError(t, err)
+
+	// Explicit Unspecified is Some(0), not None — must differ from nil.
+	unspecified, err := base(ABIValue{
+		Value:   `[{"name":"transfer"}]`,
+		AbiType: abiTypePtr(AbiTypeUnspecified),
+	}).MetadataDigestHex()
+	require.NoError(t, err)
+	require.NotEqual(t, none, unspecified, "nil AbiType (None) must differ from explicit Unspecified (Some(0))")
+
+	// Proxy with an implementation address differs from the no-type case.
+	proxy, err := base(ABIValue{
+		Value:                 `[{"name":"transfer"}]`,
+		AbiType:               abiTypePtr(AbiTypeProxy),
+		ImplementationAddress: strPtr("0x1111111111111111111111111111111111111111"),
+	}).MetadataDigestHex()
+	require.NoError(t, err)
+	require.NotEqual(t, none, proxy)
+	require.NotEqual(t, unspecified, proxy)
+}
+
+// TestMetadataDigestHex_UnknownAbiType verifies an unrecognized AbiType string is
+// a hard error rather than a silently-wrong digest.
+func TestMetadataDigestHex_UnknownAbiType(t *testing.T) {
+	meta := &RequestChainMetadata{
+		Ethereum: &EthereumChainMetadata{
+			ABIMappings: map[string]ABIValue{
+				"0xContract": {Value: `[]`, AbiType: abiTypePtr(AbiType("ABI_TYPE_BOGUS"))},
+			},
+		},
+	}
+	_, err := meta.MetadataDigestHex()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown abi_type")
 }
 
 // TestBorshBytes_NilReceiver returns the Borsh encoding of
