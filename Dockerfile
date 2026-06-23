@@ -4,7 +4,9 @@
 FROM golang:1.25-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+# Honor the lockfile: download then verify module hashes against go.sum (Go also
+# builds with -mod=readonly by default, failing on any go.mod/go.sum drift).
+RUN go mod download && go mod verify
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/turnkey-client .
 
