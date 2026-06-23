@@ -1,0 +1,51 @@
+name: Smoke (deployed dev parser)
+
+# Parse a known Solana V0+ALT transaction through the DEPLOYED dev parser and
+# assert it renders — a regression guard for the "Cannot render V0" failure.
+# Manual + a weekday schedule. Calls scripts/smoke.sh (CLI stdout is JSON).
+#
+# Required repo secrets (the dev smoke API key):
+#   VSP_SMOKE_KEY_PUBLIC   - hex compressed public key (the .public file contents)
+#   VSP_SMOKE_KEY_PRIVATE  - "<hexscalar>:p256" (the .private file contents)
+# Required repo variables:
+#   VSP_SMOKE_ORG          - dev organization id
+#   VSP_SMOKE_APP          - expected enclaveApp (dev app id)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 14 * * 1-5" # weekdays 14:00 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Write dev API key
+        env:
+          VSP_SMOKE_KEY_PUBLIC: ${{ secrets.VSP_SMOKE_KEY_PUBLIC }}
+          VSP_SMOKE_KEY_PRIVATE: ${{ secrets.VSP_SMOKE_KEY_PRIVATE }}
+        run: |
+          umask 077
+          mkdir -p "$HOME/.config/turnkey/keys"
+          printf '%s' "$VSP_SMOKE_KEY_PUBLIC"  > "$HOME/.config/turnkey/keys/dev.public"
+          printf '%s' "$VSP_SMOKE_KEY_PRIVATE" > "$HOME/.config/turnkey/keys/dev.private"
+
+      - name: Smoke
+        env:
+          VSP_SMOKE_ORG: ${{ vars.VSP_SMOKE_ORG }}
+          VSP_SMOKE_APP: ${{ vars.VSP_SMOKE_APP }}
+          VSP_SMOKE_KEY: dev
+        run: ./scripts/smoke.sh
