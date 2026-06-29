@@ -43,3 +43,16 @@ func TestVerifyCommand(t *testing.T) {
 	require.True(t, hasKeyName, "Should have --key-name flag")
 	require.True(t, hasPayload, "Should have --unsigned-payload flag")
 }
+
+func TestVerifyCommandHasDevPathFlag(t *testing.T) {
+	cmd := VerifyCommand()
+
+	var hasDevPath bool
+	for _, flag := range cmd.Flags {
+		if f, ok := flag.(*cli.BoolFlag); ok && f.Name == "dev-path" {
+			hasDevPath = true
+		}
+	}
+
+	require.True(t, hasDevPath, "verify should have a --dev-path flag to target /visualsign-dev")
+}

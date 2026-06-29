@@ -58,6 +58,10 @@ func VerifyCommand() *cli.Command {
 				Value: "CHAIN_SOLANA",
 			},
 			&cli.BoolFlag{
+				Name:  "dev-path",
+				Usage: "Route to /visualsign-dev/api/<version>/parse instead of the canonical /visualsign path",
+			},
+			&cli.BoolFlag{
 				Name:  "debug",
 				Usage: "Enable debug output (attestation document, PCR values, manifest details)",
 			},
@@ -113,6 +117,7 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
 	apiClient.VisualSignAPIVersion = apiVersion
+	apiClient.UseDevPath = cmd.Bool("dev-path")
 
 	// Create attestation verifier
 	verifier := nitroverifier.NewVerifier(nitroverifier.AWSNitroVerifierOptions{
