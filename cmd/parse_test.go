@@ -14,36 +14,31 @@ func TestParseCommand(t *testing.T) {
 	require.Equal(t, "parse", cmd.Name)
 	require.NotEmpty(t, cmd.Usage)
 
-	// Verify required flags exist
+	// Assert the expected flags exist by name and that the required ones are
+	// marked Required. Checking by name (rather than an exact Flags count) keeps
+	// meaningful coverage -- it catches removal of any flag we rely on -- without
+	// re-breaking every time a new flag is added.
 	require.NotNil(t, cmd.Flags)
-	require.Len(t, cmd.Flags, 4)
-
-	// Check for specific required flags
-	var hasHost, hasOrgID, hasKeyName, hasPayload bool
+	required := map[string]bool{
+		"host": true, "organization-id": true, "key-name": true, "unsigned-payload": true,
+	}
+	seen := make(map[string]bool)
 	for _, flag := range cmd.Flags {
 		switch f := flag.(type) {
 		case *cli.StringFlag:
-			if f.Name == "host" {
-				hasHost = true
-				require.True(t, f.Required)
+			seen[f.Name] = true
+			if required[f.Name] {
+				require.True(t, f.Required, "--%s should be required", f.Name)
 			}
-			if f.Name == "organization-id" {
-				hasOrgID = true
-				require.True(t, f.Required)
+			if f.Name == "chain" {
+				require.Equal(t, "CHAIN_SOLANA", f.Value, "--chain should default to CHAIN_SOLANA")
 			}
-			if f.Name == "key-name" {
-				hasKeyName = true
-				require.True(t, f.Required)
-			}
-			if f.Name == "unsigned-payload" {
-				hasPayload = true
-				require.True(t, f.Required)
-			}
+		case *cli.BoolFlag:
+			seen[f.Name] = true
 		}
 	}
 
-	require.True(t, hasHost)
-	require.True(t, hasOrgID)
-	require.True(t, hasKeyName)
-	require.True(t, hasPayload)
+	for _, name := range []string{"host", "organization-id", "key-name", "unsigned-payload", "chain", "dev-path"} {
+		require.True(t, seen[name], "parse should have --%s flag", name)
+	}
 }

@@ -38,6 +38,15 @@ func ParseCommand() *cli.Command {
 				Usage:    "Unsigned transaction payload (base64)",
 				Required: true,
 			},
+			&cli.StringFlag{
+				Name:  "chain",
+				Usage: "Chain identifier (e.g. CHAIN_SOLANA, CHAIN_ETHEREUM)",
+				Value: "CHAIN_SOLANA",
+			},
+			&cli.BoolFlag{
+				Name:  "dev-path",
+				Usage: "Route to /visualsign-dev/api/<version>/parse instead of the canonical /visualsign path",
+			},
 		},
 		Action: runParseCommand,
 	}
@@ -49,6 +58,10 @@ func runParseCommand(ctx context.Context, cmd *cli.Command) error {
 	organizationID := cmd.String("organization-id")
 	keyName := cmd.String("key-name")
 	unsignedPayload := cmd.String("unsigned-payload")
+	chain := cmd.String("chain")
+	if chain == "" {
+		chain = "CHAIN_SOLANA" // default to Solana if not specified
+	}
 
 	// Create API client
 	httpClient := &http.Client{}
@@ -57,11 +70,12 @@ func runParseCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
+	apiClient.UseDevPath = cmd.Bool("dev-path")
 
 	// Call API to get signable payload
 	response, err := apiClient.CreateSignablePayload(ctx, &api.CreateSignablePayloadRequest{
 		UnsignedPayload: unsignedPayload,
-		Chain:           "CHAIN_SOLANA",
+		Chain:           chain,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create signable payload: %w", err)

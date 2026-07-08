@@ -1,0 +1,88 @@
+name: Docker
+
+# Build and publish the turnkey-client CLI image to GHCR so smoke tests can run
+# without a Go toolchain. Pushes on main and on version tags.
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Build & push image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Compute version and commit
+        id: version
+        run: |
+          FULL_VERSION=$(scripts/auto-version.sh 2>/dev/null || echo "dev")
+          COMMIT_HASH=$(git rev-parse --short=12 HEAD 2>/dev/null || echo "none")
+          echo "version=$FULL_VERSION" >> $GITHUB_OUTPUT
+          echo "commit=$COMMIT_HASH" >> $GITHUB_OUTPUT
+          echo "Version: $FULL_VERSION"
+          echo "Commit: $COMMIT_HASH"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ba1b8bb5e99 # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: |
+            latest=true
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,format=long
+
+      - name: Build & push
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            COMMIT=${{ steps.version.outputs.commit }}
+
+      - name: Make GHCR package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # New GHCR packages are private by default. This step attempts to flip the
+        # visibility to public so smoke-test consumers can pull without auth. It
+        # requires the workflow token to have package admin rights; if those are
+        # missing the step warns but does not fail the build, and a repo admin must
+        # change visibility manually in the package settings.
+        continue-on-error: true
+        run: |
+          PACKAGE_NAME="${GITHUB_REPOSITORY#*/}"
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          echo "Attempting to set GHCR package $OWNER/$PACKAGE_NAME visibility to public..."
+          gh api \
+            --method PATCH \
+            "/orgs/$OWNER/packages/container/$PACKAGE_NAME/visibility" \
+            -f visibility=public \
+            || echo "WARNING: Could not update package visibility automatically. A repository admin may need to make the package public manually at https://github.com/orgs/$OWNER/packages/container/$PACKAGE_NAME/settings"
