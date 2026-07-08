@@ -27,7 +27,9 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db0
 # Run as the distroless nonroot user (65532). The image handles private key
 # material, so root is unnecessary and increases blast radius if a dependency is
 # compromised. Key loader resolves ~/.config/turnkey/keys via os.UserHomeDir();
-# pin HOME so a mounted key dir lands at a predictable path.
+# pin HOME so a mounted key dir lands at a predictable path. Smoke tests should
+# mount host keys into /home/nonroot/.config/turnkey/keys, e.g.:
+#   -v ~/.config/turnkey/keys:/home/nonroot/.config/turnkey/keys:ro
 USER nonroot:nonroot
 ENV HOME=/home/nonroot
 COPY --from=build --chown=nonroot:nonroot /out/turnkey-client /usr/local/bin/turnkey-client
