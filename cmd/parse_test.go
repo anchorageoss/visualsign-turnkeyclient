@@ -30,6 +30,9 @@ func TestParseCommand(t *testing.T) {
 			if required[f.Name] {
 				require.True(t, f.Required, "--%s should be required", f.Name)
 			}
+			if f.Name == "chain" {
+				require.Equal(t, "CHAIN_SOLANA", f.Value, "--chain should default to CHAIN_SOLANA")
+			}
 		case *cli.BoolFlag:
 			seen[f.Name] = true
 		}

@@ -59,6 +59,9 @@ func runParseCommand(ctx context.Context, cmd *cli.Command) error {
 	keyName := cmd.String("key-name")
 	unsignedPayload := cmd.String("unsigned-payload")
 	chain := cmd.String("chain")
+	if chain == "" {
+		chain = "CHAIN_SOLANA" // default to Solana if not specified
+	}
 
 	// Create API client
 	httpClient := &http.Client{}
