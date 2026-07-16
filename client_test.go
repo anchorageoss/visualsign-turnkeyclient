@@ -74,6 +74,7 @@ func TestCreateSignablePayloadSuccess(t *testing.T) {
 						ParsedPayload      string `json:"parsedPayload,omitempty"`
 						InputPayloadDigest string `json:"inputPayloadDigest,omitempty"`
 						MetadataDigest     string `json:"metadataDigest,omitempty"`
+						IntermediateOutput string `json:"intermediateOutput,omitempty"`
 					} `json:"payload"`
 					Signature *api.TurnkeySignature `json:"signature,omitempty"`
 				} `json:"parsedTransaction"`

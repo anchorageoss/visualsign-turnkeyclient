@@ -28,7 +28,17 @@ type parsedTransactionPayload struct {
 // binding, an attacker who controls the transport could substitute
 // signablePayload while keeping a valid signature over an unrelated
 // message.
-func ComputeBorshParsedTransactionPayloadHash(signablePayload, inputDigest, metadataDigest string) (string, error) {
+//
+// intermediateOutput is the raw (already base64-decoded) bytes of the parser's
+// optional machine-readable intermediate output. The proto field carrying it is
+// #[borsh(skip)], so the four-field derived encoding is unchanged; when the
+// field is non-empty the parser appends its Borsh Vec<u8> encoding (u32-LE
+// length prefix followed by the raw bytes) to the signed bytes. We reproduce
+// that here so the message binding stays valid when intermediate output is
+// present. Pass nil/empty to get the byte-for-byte pre-feature digest — the
+// signing path is out-of-band (no tag byte), so an empty value matches the
+// legacy four-field encoding exactly.
+func ComputeBorshParsedTransactionPayloadHash(signablePayload, inputDigest, metadataDigest string, intermediateOutput []byte) (string, error) {
 	raw, err := borsh.Serialize(parsedTransactionPayload{
 		ParsedPayload:      signablePayload,
 		InputPayloadDigest: inputDigest,
@@ -37,6 +47,16 @@ func ComputeBorshParsedTransactionPayloadHash(signablePayload, inputDigest, meta
 	})
 	if err != nil {
 		return "", fmt.Errorf("borsh serialize ParsedTransactionPayload: %w", err)
+	}
+	if len(intermediateOutput) > 0 {
+		// borsh.Serialize of a []byte is Borsh Vec<u8>: u32-LE length prefix
+		// followed by the raw bytes — matching the parser's
+		// borsh::to_vec(&intermediate_output) append.
+		appended, err := borsh.Serialize(intermediateOutput)
+		if err != nil {
+			return "", fmt.Errorf("borsh serialize intermediate output: %w", err)
+		}
+		raw = append(raw, appended...)
 	}
 	h := sha256.Sum256(raw)
 	return hex.EncodeToString(h[:]), nil

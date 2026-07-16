@@ -60,6 +60,10 @@ type CreateSignablePayloadRequest struct {
 	UnsignedPayload string
 	Chain           string
 	ChainMetadata   *RequestChainMetadata // optional — nil means no ABIs sent
+	// IncludeIntermediateOutput opts into the parser's machine-readable,
+	// Borsh-encoded intermediate_output. Default false keeps the legacy
+	// response shape and signed digest.
+	IncludeIntermediateOutput bool
 }
 
 // CreateSignablePayload calls Turnkey's visualsign API to create a signable payload
@@ -77,6 +81,7 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	reqBody.Request.UnsignedPayload = req.UnsignedPayload
 	reqBody.Request.Chain = req.Chain
 	reqBody.Request.ChainMetadata = req.ChainMetadata
+	reqBody.Request.IncludeIntermediateOutput = req.IncludeIntermediateOutput
 
 	// Marshal request to JSON
 	reqJSON, err := json.Marshal(reqBody)
@@ -197,6 +202,7 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		ParsedPayload:                    turnkeyResp.Response.ParsedTransaction.Payload.ParsedPayload,
 		InputPayloadDigest:               turnkeyResp.Response.ParsedTransaction.Payload.InputPayloadDigest,
 		MetadataDigest:                   turnkeyResp.Response.ParsedTransaction.Payload.MetadataDigest,
+		IntermediateOutputB64:            turnkeyResp.Response.ParsedTransaction.Payload.IntermediateOutput,
 		TurnkeySerializedSignablePayload: signablePayloadString,
 		ManifestVersion:                  mv,
 		Attestations:                     attestations,

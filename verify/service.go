@@ -69,9 +69,10 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 		}
 	}
 	apiReq := &api.CreateSignablePayloadRequest{
-		UnsignedPayload: req.UnsignedPayload,
-		Chain:           chain,
-		ChainMetadata:   req.ChainMetadata,
+		UnsignedPayload:           req.UnsignedPayload,
+		Chain:                     chain,
+		ChainMetadata:             req.ChainMetadata,
+		IncludeIntermediateOutput: req.IncludeIntermediateOutput,
 	}
 
 	response, err := s.apiClient.CreateSignablePayload(ctx, apiReq)
@@ -131,6 +132,24 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 	result.InputPayloadDigest = response.InputPayloadDigest
 	result.MetadataDigest = response.MetadataDigest
 
+	// Decode the optional machine-readable intermediate output. Its raw bytes
+	// are folded into the signed-message binding below; the decoded struct is
+	// surfaced in the result. Presence is driven by the response, not the
+	// request flag, so a backend that ignores the flag (e.g. the live API)
+	// still verifies. A non-empty-but-undecodable blob is a hard error.
+	var intermediateOutputBytes []byte
+	if response.IntermediateOutputB64 != "" {
+		intermediateOutputBytes, err = base64.StdEncoding.DecodeString(response.IntermediateOutputB64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode intermediate output base64: %w", err)
+		}
+		decoded, err := DecodeSolanaIntermediateOutput(intermediateOutputBytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode solana intermediate output: %w", err)
+		}
+		result.IntermediateOutput = decoded
+	}
+
 	// Recompute digests locally to confirm the backend-reported values match
 	// our inputs. See visualsign-parser's src/parser/app/src/routes/parse.rs:
 	//   input_payload_digest = sha256(unsigned_payload_string_bytes)
@@ -162,6 +181,7 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 	// hex casing and surfaces a clean decode error on malformed input.
 	expectedMsg, err := ComputeBorshParsedTransactionPayloadHash(
 		response.SignablePayload, response.InputPayloadDigest, response.MetadataDigest,
+		intermediateOutputBytes,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("compute borsh parsed transaction payload hash: %w", err)

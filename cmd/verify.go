@@ -74,6 +74,10 @@ func VerifyCommand() *cli.Command {
 				Name:  "chain-metadata",
 				Usage: `Chain metadata JSON (e.g. {"ethereum":{"abiMappings":{"0xAddr":{"value":"[...]"}}}})`,
 			},
+			&cli.BoolFlag{
+				Name:  "include-intermediate-output",
+				Usage: "Request and decode the parser's machine-readable Borsh intermediate output (adds an intermediateOutput field to the JSON)",
+			},
 		},
 		Action: runVerifyCommand,
 	}
@@ -92,6 +96,7 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 	debug := cmd.Bool("debug")
 	pcrsSpec := cmd.String("pcrs")
 	chainMetadataJSON := cmd.String("chain-metadata")
+	includeIntermediateOutput := cmd.Bool("include-intermediate-output")
 
 	// Parse PCR rules if provided
 	pcrRules, err := ParsePCRs(pcrsSpec)
@@ -133,12 +138,13 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 
 	// Perform verification
 	result, err := service.Verify(ctx, &verify.VerifyRequest{
-		UnsignedPayload:    unsignedPayload,
-		QosManifestHex:     qosManifestHex,
-		PivotBinaryHashHex: pivotBinaryHashHex,
-		SaveManifestPath:   saveManifestPath,
-		Chain:              chain,
-		ChainMetadata:      chainMetadata,
+		UnsignedPayload:           unsignedPayload,
+		QosManifestHex:            qosManifestHex,
+		PivotBinaryHashHex:        pivotBinaryHashHex,
+		SaveManifestPath:          saveManifestPath,
+		Chain:                     chain,
+		ChainMetadata:             chainMetadata,
+		IncludeIntermediateOutput: includeIntermediateOutput,
 	})
 	if err != nil {
 		return fmt.Errorf("verification failed: %w", err)
