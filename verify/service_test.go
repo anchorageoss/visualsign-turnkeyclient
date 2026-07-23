@@ -52,7 +52,7 @@ func create130BytePublicKey(t *testing.T) ([]byte, *ecdsa.PrivateKey) {
 // Tests that aren't about the Borsh binding itself use this to bypass it.
 func expectedMessageHex(t *testing.T, signablePayload, inputDigest, metadataDigest string) string {
 	t.Helper()
-	msg, err := ComputeBorshParsedTransactionPayloadHash(signablePayload, inputDigest, metadataDigest)
+	msg, err := ComputeBorshParsedTransactionPayloadHash(signablePayload, inputDigest, metadataDigest, nil)
 	require.NoError(t, err)
 	return msg
 }

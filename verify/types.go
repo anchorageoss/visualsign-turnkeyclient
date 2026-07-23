@@ -55,6 +55,11 @@ type VerifyRequest struct {
 	// When set, Verify locally recomputes metadataDigest via Borsh encoding and
 	// compares it against the backend-reported value.
 	ChainMetadata *api.RequestChainMetadata
+	// IncludeIntermediateOutput requests the parser's machine-readable,
+	// Borsh-encoded intermediate output. When the backend returns it, Verify
+	// decodes it into VerifyResult.IntermediateOutput and folds its bytes into
+	// the signed-message binding.
+	IncludeIntermediateOutput bool
 }
 
 // VerifyResponseRequest carries the fields VerifyResponse needs that aren't
@@ -95,6 +100,10 @@ type VerifyResult struct {
 	Manifest                *manifest.Manifest          `json:"-"`
 	AttestationDocument     interface{}                 `json:"-"`
 	ManifestReserialization ManifestSerializationResult `json:"-"`
+	// IntermediateOutput is the decoded Solana intermediate output, populated
+	// only when the backend returned a non-empty intermediateOutput. The
+	// formatter surfaces it under the "intermediateOutput" JSON key.
+	IntermediateOutput *SolanaIntermediateOutput `json:"-"`
 }
 
 // PCRValidationResult represents the result of validating a single PCR

@@ -30,7 +30,7 @@ func TestComputeBorshParsedTransactionPayloadHash_PinnedDigests(t *testing.T) {
 	}
 	for _, tc := range pinned {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ComputeBorshParsedTransactionPayloadHash(tc.signable, tc.inputDigest, tc.metadataDigest)
+			got, err := ComputeBorshParsedTransactionPayloadHash(tc.signable, tc.inputDigest, tc.metadataDigest, nil)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
 		})
@@ -46,7 +46,7 @@ func TestComputeBorshParsedTransactionPayloadHash_PinnedDigests(t *testing.T) {
 	}
 	for _, tc := range mutations {
 		t.Run(tc.name+" differs from canonical", func(t *testing.T) {
-			got, err := ComputeBorshParsedTransactionPayloadHash(tc.signable, tc.inputDigest, tc.metadataDigest)
+			got, err := ComputeBorshParsedTransactionPayloadHash(tc.signable, tc.inputDigest, tc.metadataDigest, nil)
 			require.NoError(t, err)
 			require.NotEqual(t, baseExpectedDigest, got)
 		})

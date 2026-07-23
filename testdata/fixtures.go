@@ -12,3 +12,25 @@ var ManifestBin []byte
 //
 //go:embed turnkey-attestation.base64
 var AttestationBase64 []byte
+
+// SolanaIntermediateSampleJSON is a captured local-parser response (branch
+// prof-355) carrying a real Borsh-encoded Solana intermediate output plus the
+// enclave-signed message digest, used to cross-check the Go Borsh decode and
+// signed-digest recompute against Rust output.
+//
+//go:embed solana_intermediate_sample.json
+var SolanaIntermediateSampleJSON []byte
+
+// SolanaIntermediateGatewayResponseJSON is the full Turnkey-shaped response the
+// local parser gateway returned for SolanaIntermediateUnsignedPayload with
+// include_intermediate_output=true (mock boot proof + real app signature +
+// base64 intermediateOutput). Used for the end-to-end verify test.
+//
+//go:embed solana_intermediate_gateway_response.json
+var SolanaIntermediateGatewayResponseJSON []byte
+
+// SolanaIntermediateUnsignedPayload is the base64 unsigned payload that produced
+// SolanaIntermediateGatewayResponseJSON (a 2-signature native SOL transfer).
+//
+//go:embed solana_intermediate_unsigned_payload.txt
+var SolanaIntermediateUnsignedPayload []byte

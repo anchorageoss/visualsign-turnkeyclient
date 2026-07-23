@@ -12,6 +12,22 @@ func TestNewFormatter(t *testing.T) {
 	require.NotNil(t, formatter)
 }
 
+func TestFormatVerificationResult_IntermediateOutput(t *testing.T) {
+	formatter := NewFormatter()
+
+	t.Run("absent when not decoded", func(t *testing.T) {
+		out := formatter.FormatVerificationResult(&VerifyResult{})
+		_, ok := out["intermediateOutput"]
+		require.False(t, ok, "intermediateOutput must be omitted when nil so existing output is unchanged")
+	})
+
+	t.Run("present when decoded", func(t *testing.T) {
+		io := &SolanaIntermediateOutput{SchemaVersion: SolanaIntermediateSchemaVersion}
+		out := formatter.FormatVerificationResult(&VerifyResult{IntermediateOutput: io})
+		require.Same(t, io, out["intermediateOutput"])
+	})
+}
+
 func TestFormatPCRValues(t *testing.T) {
 	formatter := NewFormatter()
 

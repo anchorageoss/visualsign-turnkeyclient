@@ -238,6 +238,14 @@ func (f *Formatter) FormatVerificationResult(result *VerifyResult) map[string]in
 		output["pcr4"] = result.PCR4
 	}
 
+	// Surface the decoded machine-readable intermediate output only when the
+	// backend returned it. Absent ⇒ output is byte-identical to the pre-feature
+	// shape, so existing consumers (and the default verify invocation) are
+	// unaffected.
+	if result.IntermediateOutput != nil {
+		output["intermediateOutput"] = result.IntermediateOutput
+	}
+
 	// Add PCR validation results if present
 	if len(result.PCRValidationResults) > 0 {
 		pcrResults := make([]map[string]interface{}, len(result.PCRValidationResults))

@@ -123,6 +123,10 @@ type TurnkeyVisualSignRequest struct {
 		UnsignedPayload string                `json:"unsigned_payload"`
 		Chain           string                `json:"chain"`
 		ChainMetadata   *RequestChainMetadata `json:"chain_metadata,omitempty"`
+		// IncludeIntermediateOutput opts into the parser's machine-readable,
+		// Borsh-encoded intermediate_output blob. Omitted (false) preserves the
+		// legacy response shape and the pre-feature signed digest.
+		IncludeIntermediateOutput bool `json:"include_intermediate_output,omitempty"`
 	} `json:"request"`
 	OrganizationID string `json:"organization_id"`
 }
@@ -137,6 +141,9 @@ type TurnkeyVisualSignResponse struct {
 				ParsedPayload      string `json:"parsedPayload,omitempty"`      // v2
 				InputPayloadDigest string `json:"inputPayloadDigest,omitempty"` // v2
 				MetadataDigest     string `json:"metadataDigest,omitempty"`     // v2
+				// IntermediateOutput is base64-encoded Borsh bytes (proto bytes
+				// JSON convention). Omitted by the backend unless requested.
+				IntermediateOutput string `json:"intermediateOutput,omitempty"` // v2
 			} `json:"payload"`
 			Signature *TurnkeySignature `json:"signature,omitempty"`
 		} `json:"parsedTransaction"`
@@ -190,6 +197,7 @@ type SignablePayloadResponse struct {
 	ParsedPayload                    string                     `json:"parsedPayload,omitempty"`      // v2
 	InputPayloadDigest               string                     `json:"inputPayloadDigest,omitempty"` // v2
 	MetadataDigest                   string                     `json:"metadataDigest,omitempty"`     // v2
+	IntermediateOutputB64            string                     `json:"intermediateOutput,omitempty"` // v2, base64 Borsh
 	TurnkeySerializedSignablePayload string                     `json:"turnkeySerializedSignablePayload"`
 	ManifestVersion                  manifest.ManifestVersion   `json:"manifestVersion"`
 	Attestations                     map[AttestationType]string `json:"attestations"`
