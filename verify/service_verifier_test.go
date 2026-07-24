@@ -17,6 +17,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestServiceVerifier_NilService verifies that a ServiceVerifier constructed
+// directly with a nil Service returns an error (not a panic) from Verify.
+func TestServiceVerifier_NilService(t *testing.T) {
+	v := &ServiceVerifier{service: nil, req: &VerifyResponseRequest{}}
+	result, err := v.Verify(context.Background(), &api.SignablePayloadResponse{})
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Contains(t, err.Error(), "nil")
+}
+
+// TestServiceVerifier_NilResponse verifies that Verify returns an error (not a
+// panic) when handed a nil SignablePayloadResponse.
+func TestServiceVerifier_NilResponse(t *testing.T) {
+	attVerifier := &mockAttestationVerifier{
+		result: &nitroverifier.ValidationResult{Valid: true},
+	}
+	svc := NewService(nil, attVerifier)
+	v := NewServiceVerifier(svc, &VerifyResponseRequest{})
+
+	result, err := v.Verify(context.Background(), nil)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Contains(t, err.Error(), "nil")
+}
+
 // TestServiceVerifierImplementsVerifier confirms the legacy Nitro flow is
 // exposed through the generic Verifier interface via the ServiceVerifier
 // adapter.

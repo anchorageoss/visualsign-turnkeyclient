@@ -32,6 +32,12 @@ func NewServiceVerifier(service *Service, req *VerifyResponseRequest) *ServiceVe
 // the response digests surfaced in Signed. On failure it returns the error and
 // a nil result, mirroring the legacy behavior.
 func (s *ServiceVerifier) Verify(ctx context.Context, resp *api.SignablePayloadResponse) (*VerifierResult, error) {
+	if s == nil || s.service == nil {
+		return nil, fmt.Errorf("ServiceVerifier.Verify: nil service")
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("ServiceVerifier.Verify: nil response")
+	}
 	legacy, err := s.service.VerifyResponse(ctx, resp, s.req)
 	if err != nil {
 		return nil, err

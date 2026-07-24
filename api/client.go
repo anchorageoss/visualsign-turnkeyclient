@@ -25,8 +25,10 @@ type KeyProvider interface {
 }
 
 // RequestStamper optionally authenticates an outgoing parse request by returning
-// the value for the "X-Stamp" header. A nil RequestStamper (or one returning "")
-// sends no stamp — required for unauthenticated parser deployments.
+// the value for the "X-Stamp" header. A nil RequestStamper uses the client's
+// built-in default stamping path (which stamps only when an API key is
+// configured, and sends no stamp otherwise). To send no stamp regardless of
+// configuration, supply a RequestStamper whose Stamp returns an empty string.
 type RequestStamper interface {
 	Stamp(requestBody []byte) (string, error)
 }

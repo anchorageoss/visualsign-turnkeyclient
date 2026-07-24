@@ -35,7 +35,7 @@ func selfSignedDER(t *testing.T, cn string) []byte {
 		NotBefore:    time.Unix(0, 0),
 		NotAfter:     time.Now().Add(time.Hour),
 	}
-	der, err := x509.CreateCertificate(nil, tmpl, tmpl, &priv.PublicKey, priv)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 	require.NoError(t, err)
 	return der
 }
@@ -72,6 +72,34 @@ func TestLoad_Base64File(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "root.base64")
 	require.NoError(t, os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString(der)), 0644))
+
+	roots, err := Load(path, nil)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Equal(t, der, roots[0])
+}
+
+// TestLoad_RawStdBase64File verifies an unpadded standard-base64 DER file
+// is decoded to DER.
+func TestLoad_RawStdBase64File(t *testing.T) {
+	der := selfSignedDER(t, "root.rawstd")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "root.base64")
+	require.NoError(t, os.WriteFile(path, []byte(base64.RawStdEncoding.EncodeToString(der)), 0644))
+
+	roots, err := Load(path, nil)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	require.Equal(t, der, roots[0])
+}
+
+// TestLoad_RawURLBase64File verifies an unpadded URL-safe-base64 DER file
+// is decoded to DER.
+func TestLoad_RawURLBase64File(t *testing.T) {
+	der := selfSignedDER(t, "root.rawurl")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "root.base64")
+	require.NoError(t, os.WriteFile(path, []byte(base64.RawURLEncoding.EncodeToString(der)), 0644))
 
 	roots, err := Load(path, nil)
 	require.NoError(t, err)

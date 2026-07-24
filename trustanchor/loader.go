@@ -119,14 +119,19 @@ func decodeRoots(data []byte) ([][]byte, error) {
 		}
 	}
 
-	// Base64 path: the whole blob decodes to DER. Try standard then URL encoding.
-	if dec, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(data))); err == nil && looksLikeDER(dec) {
+	// Base64 path: the whole blob decodes to DER. Try padded standard, padded
+	// URL-safe, unpadded standard, and unpadded URL-safe encodings.
+	trimmed := strings.TrimSpace(string(data))
+	if dec, err := base64.StdEncoding.DecodeString(trimmed); err == nil && looksLikeDER(dec) {
 		return [][]byte{dec}, nil
 	}
-	if dec, err := base64.URLEncoding.DecodeString(strings.TrimSpace(string(data))); err == nil && looksLikeDER(dec) {
+	if dec, err := base64.URLEncoding.DecodeString(trimmed); err == nil && looksLikeDER(dec) {
 		return [][]byte{dec}, nil
 	}
-	if dec, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(string(data))); err == nil && looksLikeDER(dec) {
+	if dec, err := base64.RawStdEncoding.DecodeString(trimmed); err == nil && looksLikeDER(dec) {
+		return [][]byte{dec}, nil
+	}
+	if dec, err := base64.RawURLEncoding.DecodeString(trimmed); err == nil && looksLikeDER(dec) {
 		return [][]byte{dec}, nil
 	}
 
