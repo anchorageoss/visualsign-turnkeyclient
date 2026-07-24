@@ -189,10 +189,21 @@ func TestCreateSignablePayload(t *testing.T) {
 		require.Contains(t, err.Error(), "API error occurred")
 	})
 
-	t.Run("nil APIKey returns error", func(t *testing.T) {
+	t.Run("nil APIKey allowed (unauthenticated mode)", func(t *testing.T) {
+		response := TurnkeyVisualSignResponse{}
+		response.Response.ParsedTransaction.Payload.SignablePayload = "test-signable-payload"
+
+		responseBody, _ := json.Marshal(response)
+		mockResp := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(responseBody)),
+		}
+
+		mockClient := &mockHTTPClient{response: mockResp}
 		nilAPIKeyClient := &Client{
-			HostURI:    "https://api.turnkey.com",
-			HTTPClient: &mockHTTPClient{},
+			HostURI:              "https://api.turnkey.com",
+			HTTPClient:           mockClient,
+			VisualSignAPIVersion: "v2",
 		}
 
 		req := &CreateSignablePayloadRequest{
@@ -201,9 +212,11 @@ func TestCreateSignablePayload(t *testing.T) {
 		}
 
 		result, err := nilAPIKeyClient.CreateSignablePayload(context.Background(), req)
-		require.Error(t, err)
-		require.Nil(t, result)
-		require.Contains(t, err.Error(), "APIKey must be configured")
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Equal(t, "test-signable-payload", result.SignablePayload)
+		_, ok := mockClient.lastRequest.Header["X-Stamp"]
+		require.False(t, ok)
 	})
 
 	t.Run("nil request returns error", func(t *testing.T) {

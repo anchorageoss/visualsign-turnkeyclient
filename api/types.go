@@ -28,6 +28,7 @@ package api
 
 import (
 	"crypto/ecdsa"
+	"encoding/json"
 	"math/big"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
@@ -198,6 +199,12 @@ type SignablePayloadResponse struct {
 	EphemeralPublicKeyHex            string                     `json:"ephemeralPublicKeyHex,omitempty"`
 	EnclaveApp                       string                     `json:"enclaveApp,omitempty"`
 	DeploymentLabel                  string                     `json:"deploymentLabel,omitempty"`
+	// RawAttestation holds the raw JSON bytes of the sibling attestation field
+	// (named by Client.AttestationField, default "bootProof") from the parser
+	// response envelope. It is nil when that field is absent. This exposes the
+	// attestation object to verifier-agnostic consumers without requiring
+	// Turnkey/Nitro-specific struct decoding.
+	RawAttestation json.RawMessage `json:"rawAttestation,omitempty"`
 }
 
 // ECDSASignature represents an ECDSA signature for ASN.1 encoding
