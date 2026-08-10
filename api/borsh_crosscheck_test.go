@@ -80,6 +80,33 @@ func TestCrosscheckGoVsRustOnDeployedProto(t *testing.T) {
 			rustBytes:  "01000110000000455448455245554d5f4d41494e4e45540200000006000000307861616161020000005b5d00000006000000307862626262020000005b5d00010100000000",
 			rustDigest: "ff3492199922108e52fc05edf2a4ceb2a3f7857982a92ed1770aea3997b68cb5",
 		},
+		{
+			// Ground truth from visualsign-parser's own borsh::to_vec over
+			// ChainMetadata { metadata: Some(Solana(SolanaMetadata { network_id:
+			// None, idl: None, idl_mappings: {}, simulated_instructions: [one
+			// System Program instruction, two account keys] })) }. Pins the
+			// solanaVariant discriminant (01, second oneof variant) and
+			// borshSolanaMetadata's field order (NetworkID, Idl, IdlMappings,
+			// SimulatedInstructions — matching the Rust struct's *declaration*
+			// order, not proto tag order: network_id is tag 2, idl is tag 1).
+			name: "solana simulated instructions",
+			meta: &RequestChainMetadata{
+				Solana: &SolanaChainMetadata{
+					SimulatedInstructions: []SimulatedInstruction{
+						{
+							ProgramKey:         "11111111111111111111111111111111",
+							InstructionDataHex: "0200000001000000000000000000",
+							AccountKeys: []string{
+								"Acct1111111111111111111111111111111111111",
+								"Acct2222222222222222222222222222222222222",
+							},
+						},
+					},
+				},
+			},
+			rustBytes:  "0101000000000000010000002000000031313131313131313131313131313131313131313131313131313131313131311c0000003032303030303030303130303030303030303030303030303030303002000000290000004163637431313131313131313131313131313131313131313131313131313131313131313131313131290000004163637432323232323232323232323232323232323232323232323232323232323232323232323232",
+			rustDigest: "4e2f0b0a94805252ce09c75832ecef2c201d3a152922cd7b5f627d32d25aae7e",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cm, err := tc.meta.toBorshChainMetadata()

@@ -16,6 +16,10 @@ import (
 // Matches the Rust enum's default discriminant (use_discriminant=true, first variant = 0).
 const ethereumVariant = borsh.Enum(0)
 
+// solanaVariant is the Borsh discriminant for chain_metadata::Metadata::Solana.
+// Matches the Rust enum's default discriminant (use_discriminant=true, second variant = 1).
+const solanaVariant = borsh.Enum(1)
+
 // borshChainMetadata mirrors parser.rs ChainMetadata.
 type borshChainMetadata struct {
 	Metadata *borshMetadataEnum // Option<chain_metadata::Metadata>
@@ -26,7 +30,7 @@ type borshChainMetadata struct {
 type borshMetadataEnum struct {
 	Enum     borsh.Enum            `borsh_enum:"true"`
 	Ethereum borshEthereumMetadata // variant 0
-	Solana   borshSolanaMetadata   // variant 1 — placeholder, never active in Ethereum path
+	Solana   borshSolanaMetadata   // variant 1
 }
 
 // borshEthereumMetadata mirrors parser.rs EthereumMetadata.
@@ -92,9 +96,42 @@ type borshKeyValue struct {
 	Value string
 }
 
-// borshSolanaMetadata is a placeholder for variant 1 of borshMetadataEnum.
-// It is never serialized when the Ethereum variant (0) is active.
-type borshSolanaMetadata struct{}
+// borshSolanaMetadata mirrors parser.rs SolanaMetadata. Field order must match
+// the Rust struct declaration order (network_id, idl, idl_mappings,
+// simulated_instructions), which is what Borsh serializes in — NOT proto tag
+// order (network_id is tag 2, idl is tag 1). This client only ever sends
+// SimulatedInstructions, never IDL data, so NetworkID and IdlMappings are
+// always the zero value (nil/empty) here; that still matches the Rust side's
+// None/empty-map encoding for those fields.
+type borshSolanaMetadata struct {
+	NetworkID             *string                     // Option<String>
+	Idl                   *borshIdlPlaceholder        // Option<Idl> — always None; this client never sets it
+	IdlMappings           []borshIdlMappingEntry      // HashMap<String, Idl> — always empty; this client never sets it
+	SimulatedInstructions []borshSimulatedInstruction // Vec<SimulatedInstruction>
+}
+
+// borshIdlPlaceholder mirrors parser.rs Idl closely enough to type-check the
+// always-nil Option<Idl> above. Never populated by this client; add real
+// fields here (mirroring Idl's declared field order) if this client starts
+// sending idl.
+type borshIdlPlaceholder struct {
+	Value string
+}
+
+// borshIdlMappingEntry would mirror one (program_id, Idl) entry of
+// idl_mappings if this client ever populated it. Never populated today.
+type borshIdlMappingEntry struct {
+	ProgramID string
+	Idl       borshIdlPlaceholder
+}
+
+// borshSimulatedInstruction mirrors parser.rs SimulatedInstruction. Field
+// order must match its Rust struct declaration order.
+type borshSimulatedInstruction struct {
+	ProgramKey         string
+	InstructionDataHex string
+	AccountKeys        []string
+}
 
 func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
 	if s == nil {
@@ -111,7 +148,8 @@ func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
 // visualsign-parser hashes for metadata_digest. hex.EncodeToString of
 // SHA256 over these bytes equals MetadataDigestHex(). These bytes let a
 // verifier recompute the digest off-chain. Returns the Borsh encoding of
-// ChainMetadata{metadata: None} ([]byte{0x00}) when r is nil or r.Ethereum is nil.
+// ChainMetadata{metadata: None} ([]byte{0x00}) when r is nil, or when
+// neither r.Ethereum nor r.Solana is set.
 func (r *RequestChainMetadata) BorshBytes() ([]byte, error) {
 	cm, err := r.toBorshChainMetadata()
 	if err != nil {
@@ -135,9 +173,20 @@ func (r *RequestChainMetadata) MetadataDigestHex() (string, error) {
 }
 
 func (r *RequestChainMetadata) toBorshChainMetadata() (borshChainMetadata, error) {
-	if r == nil || r.Ethereum == nil {
+	if r == nil {
 		return borshChainMetadata{Metadata: nil}, nil
 	}
+	switch {
+	case r.Ethereum != nil:
+		return r.toBorshChainMetadataEthereum()
+	case r.Solana != nil:
+		return r.toBorshChainMetadataSolana()
+	default:
+		return borshChainMetadata{Metadata: nil}, nil
+	}
+}
+
+func (r *RequestChainMetadata) toBorshChainMetadataEthereum() (borshChainMetadata, error) {
 	eth := r.Ethereum
 	entries := make([]borshAbiEntry, 0, len(eth.ABIMappings))
 	for addr, abi := range eth.ABIMappings {
@@ -164,6 +213,22 @@ func (r *RequestChainMetadata) toBorshChainMetadata() (borshChainMetadata, error
 			Ethereum: borshEthereumMetadata{
 				NetworkID:   eth.NetworkID,
 				ABIMappings: entries,
+			},
+		},
+	}, nil
+}
+
+func (r *RequestChainMetadata) toBorshChainMetadataSolana() (borshChainMetadata, error) {
+	sol := r.Solana
+	instructions := make([]borshSimulatedInstruction, len(sol.SimulatedInstructions))
+	for i, inst := range sol.SimulatedInstructions {
+		instructions[i] = borshSimulatedInstruction(inst)
+	}
+	return borshChainMetadata{
+		Metadata: &borshMetadataEnum{
+			Enum: solanaVariant,
+			Solana: borshSolanaMetadata{
+				SimulatedInstructions: instructions,
 			},
 		},
 	}, nil

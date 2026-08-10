@@ -105,9 +105,36 @@ type EthereumChainMetadata struct {
 	ABIMappings map[string]ABIValue `json:"abiMappings,omitempty"`
 }
 
+// SimulatedInstruction is one instruction from a pre-signing transaction
+// simulation, in the order Solana's simulateTransaction RPC returns them.
+// Callers flatten simulateTransaction's top-level Instructions and every
+// entry's InnerInstructions into a single ordered list before sending it
+// here, so the parser sees the full CPI call tree without having to
+// re-derive it from raw compiled-message bytes (which do not contain
+// execution-time CPI data at all).
+type SimulatedInstruction struct {
+	// ProgramKey is the base58-encoded program ID this instruction invokes.
+	ProgramKey string `json:"programKey"`
+	// InstructionDataHex is the hex-encoded raw instruction data.
+	InstructionDataHex string `json:"instructionDataHex"`
+	// AccountKeys are the base58-encoded account pubkeys, in instruction order.
+	AccountKeys []string `json:"accountKeys,omitempty"`
+}
+
+// SolanaChainMetadata carries optional simulation-derived data for Solana
+// parse requests. SimulatedInstructions is the flattened instruction list
+// (top-level plus every inner/CPI call) from a prior simulateTransaction
+// call, letting the parser flag registered/unregistered status for
+// instructions that only exist at execution time and are never present in
+// the raw unsigned transaction the parser otherwise decodes.
+type SolanaChainMetadata struct {
+	SimulatedInstructions []SimulatedInstruction `json:"simulatedInstructions,omitempty"`
+}
+
 // RequestChainMetadata is the chain_metadata field in the Turnkey parse request.
 type RequestChainMetadata struct {
 	Ethereum *EthereumChainMetadata `json:"ethereum,omitempty"`
+	Solana   *SolanaChainMetadata   `json:"solana,omitempty"`
 }
 
 // TurnkeyStamp represents the stamp structure for API key authentication
