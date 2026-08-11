@@ -19,6 +19,9 @@ import (
 
 // SolanaIntermediateSchemaVersion is the schema_version this client understands.
 // It matches SOLANA_INTERMEDIATE_SCHEMA_VERSION in the parser's intermediate.rs.
+// SimulatedInstructions was added under this same version number: emission is
+// gated behind an opt-in flag with no live consumers yet, so every decoder is
+// updated to the new shape before the flag is ever enabled.
 const SolanaIntermediateSchemaVersion uint16 = 1
 
 // SolanaIntermediateOutput mirrors intermediate.rs SolanaIntermediateOutput.
@@ -33,6 +36,11 @@ type SolanaIntermediateOutput struct {
 	SplTransfers        []SplTransfer                   `json:"splTransfers"`
 	RecentBlockhash     string                          `json:"recentBlockhash"`
 	AddressTableLookups []SolanaAddressTableLookup      `json:"addressTableLookups"`
+	// SimulatedInstructions is a flat list of every call (top-level and
+	// inner/CPI alike) a caller-supplied transaction simulation observed.
+	// Independent of Instructions (static decode): no positional correlation,
+	// no index, no nesting.
+	SimulatedInstructions []SolanaSimulatedInstruction `json:"simulatedInstructions,omitempty"`
 }
 
 // SolanaIntermediateInstruction mirrors intermediate.rs SolanaIntermediateInstruction.
@@ -42,6 +50,17 @@ type SolanaIntermediateInstruction struct {
 	InstructionDataHex    string                           `json:"instructionDataHex"`
 	AddressTableLookups   []SolanaSingleAddressTableLookup `json:"addressTableLookups"`
 	ParsedInstructionData *SolanaParsedInstructionDataIo   `json:"parsedInstructionData,omitempty"`
+}
+
+// SolanaSimulatedInstruction mirrors intermediate.rs SolanaSimulatedInstruction:
+// one call (top-level or inner/CPI) a transaction simulation observed.
+type SolanaSimulatedInstruction struct {
+	ProgramKey         string `json:"programKey"`
+	InstructionDataHex string `json:"instructionDataHex"`
+	// IsUnregistered is true when ProgramKey is not in the parser's
+	// trusted-program set (native/SPL programs, built-in program types, and
+	// in-crate preset visualizers).
+	IsUnregistered bool `json:"isUnregistered"`
 }
 
 // SolanaAccount mirrors intermediate.rs SolanaAccount.

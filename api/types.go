@@ -105,30 +105,30 @@ type EthereumChainMetadata struct {
 	ABIMappings map[string]ABIValue `json:"abiMappings,omitempty"`
 }
 
-// SimulatedInstruction is one instruction from a pre-signing transaction
-// simulation, in the order Solana's simulateTransaction RPC returns them.
-// Callers flatten simulateTransaction's top-level Instructions and every
-// entry's InnerInstructions into a single ordered list before sending it
-// here, so the parser sees the full CPI call tree without having to
-// re-derive it from raw compiled-message bytes (which do not contain
-// execution-time CPI data at all).
+// SimulatedInstruction is one call (top-level or inner/CPI) a caller's prior
+// simulateTransaction call observed. Callers flatten simulateTransaction's
+// top-level Instructions and every entry's InnerInstructions into a single
+// list before sending it here; the parser does not need to correlate it
+// against the raw transaction's own instruction indices.
 type SimulatedInstruction struct {
 	// ProgramKey is the base58-encoded program ID this instruction invokes.
 	ProgramKey string `json:"programKey"`
 	// InstructionDataHex is the hex-encoded raw instruction data.
 	InstructionDataHex string `json:"instructionDataHex"`
-	// AccountKeys are the base58-encoded account pubkeys, in instruction order.
-	AccountKeys []string `json:"accountKeys,omitempty"`
+}
+
+// SimulateTransactionResult carries the flattened result of a prior
+// simulateTransaction call. Empty (not nil) when simulation found no calls.
+type SimulateTransactionResult struct {
+	Instructions []SimulatedInstruction `json:"instructions"`
 }
 
 // SolanaChainMetadata carries optional simulation-derived data for Solana
-// parse requests. SimulatedInstructions is the flattened instruction list
-// (top-level plus every inner/CPI call) from a prior simulateTransaction
-// call, letting the parser flag registered/unregistered status for
+// parse requests, letting the parser flag registered/unregistered status for
 // instructions that only exist at execution time and are never present in
 // the raw unsigned transaction the parser otherwise decodes.
 type SolanaChainMetadata struct {
-	SimulatedInstructions []SimulatedInstruction `json:"simulatedInstructions,omitempty"`
+	SimulateTransactionResult *SimulateTransactionResult `json:"simulateTransactionResult,omitempty"`
 }
 
 // RequestChainMetadata is the chain_metadata field in the Turnkey parse request.

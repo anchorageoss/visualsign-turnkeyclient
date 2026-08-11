@@ -98,16 +98,16 @@ type borshKeyValue struct {
 
 // borshSolanaMetadata mirrors parser.rs SolanaMetadata. Field order must match
 // the Rust struct declaration order (network_id, idl, idl_mappings,
-// simulated_instructions), which is what Borsh serializes in — NOT proto tag
-// order (network_id is tag 2, idl is tag 1). This client only ever sends
-// SimulatedInstructions, never IDL data, so NetworkID and IdlMappings are
+// simulate_transaction_result), which is what Borsh serializes in — NOT proto
+// tag order (network_id is tag 2, idl is tag 1). This client only ever sends
+// SimulateTransactionResult, never IDL data, so NetworkID and IdlMappings are
 // always the zero value (nil/empty) here; that still matches the Rust side's
 // None/empty-map encoding for those fields.
 type borshSolanaMetadata struct {
-	NetworkID             *string                     // Option<String>
-	Idl                   *borshIdlPlaceholder        // Option<Idl> — always None; this client never sets it
-	IdlMappings           []borshIdlMappingEntry      // HashMap<String, Idl> — always empty; this client never sets it
-	SimulatedInstructions []borshSimulatedInstruction // Vec<SimulatedInstruction>
+	NetworkID                 *string                         // Option<String>
+	Idl                       *borshIdlPlaceholder            // Option<Idl> — always None; this client never sets it
+	IdlMappings               []borshIdlMappingEntry          // HashMap<String, Idl> — always empty; this client never sets it
+	SimulateTransactionResult *borshSimulateTransactionResult // Option<SimulateTransactionResult>
 }
 
 // borshIdlPlaceholder mirrors parser.rs Idl closely enough to type-check the
@@ -125,12 +125,16 @@ type borshIdlMappingEntry struct {
 	Idl       borshIdlPlaceholder
 }
 
+// borshSimulateTransactionResult mirrors parser.rs SimulateTransactionResult.
+type borshSimulateTransactionResult struct {
+	Instructions []borshSimulatedInstruction // Vec<SimulatedInstruction>
+}
+
 // borshSimulatedInstruction mirrors parser.rs SimulatedInstruction. Field
 // order must match its Rust struct declaration order.
 type borshSimulatedInstruction struct {
 	ProgramKey         string
 	InstructionDataHex string
-	AccountKeys        []string
 }
 
 func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
@@ -220,16 +224,31 @@ func (r *RequestChainMetadata) toBorshChainMetadataEthereum() (borshChainMetadat
 
 func (r *RequestChainMetadata) toBorshChainMetadataSolana() (borshChainMetadata, error) {
 	sol := r.Solana
-	instructions := make([]borshSimulatedInstruction, len(sol.SimulatedInstructions))
-	for i, inst := range sol.SimulatedInstructions {
-		instructions[i] = borshSimulatedInstruction(inst)
+	var result *borshSimulateTransactionResult
+	if sol.SimulateTransactionResult != nil {
+		result = &borshSimulateTransactionResult{
+			Instructions: toBorshSimulatedInstructions(sol.SimulateTransactionResult.Instructions),
+		}
 	}
 	return borshChainMetadata{
 		Metadata: &borshMetadataEnum{
 			Enum: solanaVariant,
 			Solana: borshSolanaMetadata{
-				SimulatedInstructions: instructions,
+				SimulateTransactionResult: result,
 			},
 		},
 	}, nil
+}
+
+// toBorshSimulatedInstructions converts a flat list of SimulatedInstruction
+// into its Borsh mirror.
+func toBorshSimulatedInstructions(instructions []SimulatedInstruction) []borshSimulatedInstruction {
+	out := make([]borshSimulatedInstruction, len(instructions))
+	for i, instruction := range instructions {
+		out[i] = borshSimulatedInstruction{
+			ProgramKey:         instruction.ProgramKey,
+			InstructionDataHex: instruction.InstructionDataHex,
+		}
+	}
+	return out
 }
