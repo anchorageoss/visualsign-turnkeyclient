@@ -28,6 +28,8 @@ package api
 
 import (
 	"crypto/ecdsa"
+	"encoding/json"
+	"fmt"
 	"math/big"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
@@ -105,22 +107,59 @@ type EthereumChainMetadata struct {
 	ABIMappings map[string]ABIValue `json:"abiMappings,omitempty"`
 }
 
-// SimulatedInstruction is one call (top-level or inner/CPI) a caller's prior
-// simulateTransaction call observed. Callers flatten simulateTransaction's
-// top-level Instructions and every entry's InnerInstructions into a single
-// list before sending it here; the parser does not need to correlate it
-// against the raw transaction's own instruction indices.
+// SimulatedInstructionAccount is one account passed to a SimulatedInstruction.
+type SimulatedInstructionAccount struct {
+	// AccountKey is the base58-encoded account public key.
+	AccountKey string `json:"accountKey"`
+	IsSigner   bool   `json:"isSigner"`
+	IsWritable bool   `json:"isWritable"`
+}
+
+// SimulatedInstruction is one inner/CPI call a caller's prior
+// simulateTransaction call observed, belonging to an InnerInstructionGroup.
 type SimulatedInstruction struct {
 	// ProgramKey is the base58-encoded program ID this instruction invokes.
 	ProgramKey string `json:"programKey"`
 	// InstructionDataHex is the hex-encoded raw instruction data.
 	InstructionDataHex string `json:"instructionDataHex"`
+	// Accounts passed to this instruction, in order, resolved against the
+	// transaction's account keys.
+	Accounts []SimulatedInstructionAccount `json:"accounts,omitempty"`
+	// StackHeight is the call depth: 2+ for inner/CPI calls, matching
+	// Solana simulation's own stackHeight semantics.
+	StackHeight uint32 `json:"stackHeight"`
+	// RpcParsedData is the RPC's own jsonParsed decode, set when the caller's
+	// simulateTransaction result returned this instruction jsonParsed instead
+	// of raw (recognized programs, e.g. System/Token). Mutually exclusive with
+	// InstructionDataHex/Accounts being populated.
+	RpcParsedData *RpcParsedInstructionData `json:"rpcParsedData,omitempty"`
 }
 
-// SimulateTransactionResult carries the flattened result of a prior
-// simulateTransaction call. Empty (not nil) when simulation found no calls.
+// RpcParsedInstructionData is the RPC's own jsonParsed decode of a simulated
+// instruction (program-specific state parser output), as returned for
+// recognized programs.
+type RpcParsedInstructionData struct {
+	// InstructionType is the RPC's instruction type name, e.g.
+	// "initializeAccount3", "transfer".
+	InstructionType string `json:"instructionType"`
+	// InfoJSON is the RPC's `parsed.info` object, re-serialized as a JSON string.
+	InfoJSON string `json:"infoJson"`
+}
+
+// InnerInstructionGroup is the inner/CPI calls triggered by one top-level
+// instruction.
+type InnerInstructionGroup struct {
+	// InstructionIndex is the position of the triggering top-level
+	// instruction (0-based), matching static decode's instruction indexing.
+	InstructionIndex uint32                 `json:"instructionIndex"`
+	Instructions     []SimulatedInstruction `json:"instructions"`
+}
+
+// SimulateTransactionResult carries the inner/CPI calls a prior
+// simulateTransaction call observed, grouped by triggering top-level
+// instruction. Empty (not nil) when simulation found no calls.
 type SimulateTransactionResult struct {
-	Instructions []SimulatedInstruction `json:"instructions"`
+	InnerInstructions []InnerInstructionGroup `json:"innerInstructions"`
 }
 
 // SolanaChainMetadata carries optional simulation-derived data for Solana
@@ -132,9 +171,49 @@ type SolanaChainMetadata struct {
 }
 
 // RequestChainMetadata is the chain_metadata field in the Turnkey parse request.
+//
+// The wire shape is internally tagged, not the {"ethereum":{...}} /
+// {"solana":{...}} shape this struct's field names might suggest: the parser
+// gateway's generated ChainMetadata is an untagged oneof, which is ambiguous
+// (e.g. a Solana payload with only networkId decodes as Ethereum), so the
+// gateway requires an explicit "chain" discriminator alongside the variant's
+// fields flattened into the same object. See MarshalJSON.
 type RequestChainMetadata struct {
-	Ethereum *EthereumChainMetadata `json:"ethereum,omitempty"`
-	Solana   *SolanaChainMetadata   `json:"solana,omitempty"`
+	Ethereum *EthereumChainMetadata `json:"-"`
+	Solana   *SolanaChainMetadata   `json:"-"`
+}
+
+// MarshalJSON flattens RequestChainMetadata into the gateway's internally-tagged
+// shape: {"chain": "CHAIN_SOLANA", ...SolanaChainMetadata fields...}. Exactly one
+// of Ethereum/Solana must be set.
+func (m RequestChainMetadata) MarshalJSON() ([]byte, error) {
+	switch {
+	case m.Solana != nil:
+		return marshalTaggedChainMetadata("CHAIN_SOLANA", m.Solana)
+	case m.Ethereum != nil:
+		return marshalTaggedChainMetadata("CHAIN_ETHEREUM", m.Ethereum)
+	default:
+		return nil, fmt.Errorf("RequestChainMetadata: exactly one of Ethereum or Solana must be set")
+	}
+}
+
+// marshalTaggedChainMetadata marshals metadata to JSON and splices in a "chain"
+// key alongside its fields, matching the gateway's serde(tag = "chain") shape.
+func marshalTaggedChainMetadata(chain string, metadata any) ([]byte, error) {
+	fields, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal chain metadata: %w", err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(fields, &m); err != nil {
+		return nil, fmt.Errorf("failed to decode chain metadata fields: %w", err)
+	}
+	chainJSON, err := json.Marshal(chain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal chain discriminator: %w", err)
+	}
+	m["chain"] = chainJSON
+	return json.Marshal(m)
 }
 
 // TurnkeyStamp represents the stamp structure for API key authentication

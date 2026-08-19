@@ -127,7 +127,14 @@ type borshIdlMappingEntry struct {
 
 // borshSimulateTransactionResult mirrors parser.rs SimulateTransactionResult.
 type borshSimulateTransactionResult struct {
-	Instructions []borshSimulatedInstruction // Vec<SimulatedInstruction>
+	InnerInstructions []borshInnerInstructionGroup // Vec<InnerInstructionGroup>
+}
+
+// borshInnerInstructionGroup mirrors parser.rs InnerInstructionGroup. Field
+// order must match its Rust struct declaration order.
+type borshInnerInstructionGroup struct {
+	InstructionIndex uint32
+	Instructions     []borshSimulatedInstruction // Vec<SimulatedInstruction>
 }
 
 // borshSimulatedInstruction mirrors parser.rs SimulatedInstruction. Field
@@ -135,6 +142,24 @@ type borshSimulateTransactionResult struct {
 type borshSimulatedInstruction struct {
 	ProgramKey         string
 	InstructionDataHex string
+	Accounts           []borshSimulatedInstructionAccount // Vec<SimulatedInstructionAccount>
+	StackHeight        uint32
+	RpcParsedData      *borshRpcParsedInstructionData // Option<RpcParsedInstructionData>
+}
+
+// borshRpcParsedInstructionData mirrors parser.rs RpcParsedInstructionData.
+// Field order must match its Rust struct declaration order.
+type borshRpcParsedInstructionData struct {
+	InstructionType string
+	InfoJSON        string
+}
+
+// borshSimulatedInstructionAccount mirrors parser.rs SimulatedInstructionAccount.
+// Field order must match its Rust struct declaration order.
+type borshSimulatedInstructionAccount struct {
+	AccountKey string
+	IsSigner   bool
+	IsWritable bool
 }
 
 func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
@@ -227,7 +252,7 @@ func (r *RequestChainMetadata) toBorshChainMetadataSolana() (borshChainMetadata,
 	var result *borshSimulateTransactionResult
 	if sol.SimulateTransactionResult != nil {
 		result = &borshSimulateTransactionResult{
-			Instructions: toBorshSimulatedInstructions(sol.SimulateTransactionResult.Instructions),
+			InnerInstructions: toBorshInnerInstructionGroups(sol.SimulateTransactionResult.InnerInstructions),
 		}
 	}
 	return borshChainMetadata{
@@ -240,14 +265,51 @@ func (r *RequestChainMetadata) toBorshChainMetadataSolana() (borshChainMetadata,
 	}, nil
 }
 
-// toBorshSimulatedInstructions converts a flat list of SimulatedInstruction
-// into its Borsh mirror.
+// toBorshInnerInstructionGroups converts InnerInstructionGroups into their
+// Borsh mirror.
+func toBorshInnerInstructionGroups(groups []InnerInstructionGroup) []borshInnerInstructionGroup {
+	out := make([]borshInnerInstructionGroup, len(groups))
+	for i, group := range groups {
+		out[i] = borshInnerInstructionGroup{
+			InstructionIndex: group.InstructionIndex,
+			Instructions:     toBorshSimulatedInstructions(group.Instructions),
+		}
+	}
+	return out
+}
+
+// toBorshSimulatedInstructions converts a list of SimulatedInstruction into
+// its Borsh mirror.
 func toBorshSimulatedInstructions(instructions []SimulatedInstruction) []borshSimulatedInstruction {
 	out := make([]borshSimulatedInstruction, len(instructions))
 	for i, instruction := range instructions {
+		var rpcParsedData *borshRpcParsedInstructionData
+		if instruction.RpcParsedData != nil {
+			rpcParsedData = &borshRpcParsedInstructionData{
+				InstructionType: instruction.RpcParsedData.InstructionType,
+				InfoJSON:        instruction.RpcParsedData.InfoJSON,
+			}
+		}
 		out[i] = borshSimulatedInstruction{
 			ProgramKey:         instruction.ProgramKey,
 			InstructionDataHex: instruction.InstructionDataHex,
+			Accounts:           toBorshSimulatedInstructionAccounts(instruction.Accounts),
+			StackHeight:        instruction.StackHeight,
+			RpcParsedData:      rpcParsedData,
+		}
+	}
+	return out
+}
+
+// toBorshSimulatedInstructionAccounts converts SimulatedInstructionAccounts
+// into their Borsh mirror.
+func toBorshSimulatedInstructionAccounts(accounts []SimulatedInstructionAccount) []borshSimulatedInstructionAccount {
+	out := make([]borshSimulatedInstructionAccount, len(accounts))
+	for i, account := range accounts {
+		out[i] = borshSimulatedInstructionAccount{
+			AccountKey: account.AccountKey,
+			IsSigner:   account.IsSigner,
+			IsWritable: account.IsWritable,
 		}
 	}
 	return out

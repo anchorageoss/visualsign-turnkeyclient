@@ -88,6 +88,30 @@ func TestComputeBorshParsedTransactionPayloadHash_IntermediateCrosscheck(t *test
 	require.NotEqual(t, s.ExpectedMessage, withoutIntermediate)
 }
 
+// TestDecodeSolanaIntermediateOutput_SimulatedInstructions guards against
+// SolanaSimulatedInstruction field-order drift vs the Rust struct.
+func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
+	var s solanaIntermediateSample
+	require.NoError(t, json.Unmarshal(testdata.SolanaIntermediateSimulatedSampleJSON, &s))
+	raw, err := base64.StdEncoding.DecodeString(s.IntermediateOutputB64)
+	require.NoError(t, err)
+	require.NotEmpty(t, raw)
+
+	out, err := DecodeSolanaIntermediateOutput(raw)
+	require.NoError(t, err)
+	require.Len(t, out.SimulatedInstructions, 1)
+
+	sim := out.SimulatedInstructions[0]
+	require.EqualValues(t, 0, sim.InstructionIndex)
+	require.EqualValues(t, 2, sim.StackHeight)
+	require.Equal(t, "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", sim.ProgramKey)
+	require.Equal(t, "150700", sim.InstructionDataHex)
+	require.False(t, sim.IsUnregistered)
+	require.Len(t, sim.Accounts, 1)
+	require.Equal(t, "4DPzZ5uQzoRuphHdaUNK3xCmWTREbmBu9UK9ULEazYYA", sim.Accounts[0].AccountKey)
+	require.Nil(t, sim.ParsedInstructionData)
+}
+
 // TestDecodeSolanaIntermediateOutput_SchemaGuard ensures an unexpected
 // schema_version is rejected rather than silently misdecoded.
 func TestDecodeSolanaIntermediateOutput_SchemaGuard(t *testing.T) {

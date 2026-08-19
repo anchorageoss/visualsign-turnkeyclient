@@ -19,10 +19,8 @@ import (
 
 // SolanaIntermediateSchemaVersion is the schema_version this client understands.
 // It matches SOLANA_INTERMEDIATE_SCHEMA_VERSION in the parser's intermediate.rs.
-// SimulatedInstructions was added under this same version number: emission is
-// gated behind an opt-in flag with no live consumers yet, so every decoder is
-// updated to the new shape before the flag is ever enabled.
-const SolanaIntermediateSchemaVersion uint16 = 1
+// Bumped to 2 for SolanaSimulatedInstruction.RpcParsedData.
+const SolanaIntermediateSchemaVersion uint16 = 2
 
 // SolanaIntermediateOutput mirrors intermediate.rs SolanaIntermediateOutput.
 // schema_version is the first field so decoders can gate on it before trusting
@@ -55,12 +53,24 @@ type SolanaIntermediateInstruction struct {
 // SolanaSimulatedInstruction mirrors intermediate.rs SolanaSimulatedInstruction:
 // one call (top-level or inner/CPI) a transaction simulation observed.
 type SolanaSimulatedInstruction struct {
-	ProgramKey         string `json:"programKey"`
-	InstructionDataHex string `json:"instructionDataHex"`
+	// InstructionIndex is the position of the top-level instruction that
+	// triggered this call (0-based), matching static decode's indexing.
+	InstructionIndex uint32 `json:"instructionIndex"`
+	// StackHeight is the call depth: 2+ for inner/CPI calls, matching Solana
+	// simulation's own stackHeight semantics.
+	StackHeight        uint32          `json:"stackHeight"`
+	ProgramKey         string          `json:"programKey"`
+	Accounts           []SolanaAccount `json:"accounts"`
+	InstructionDataHex string          `json:"instructionDataHex"`
 	// IsUnregistered is true when ProgramKey is not in the parser's
 	// trusted-program set (native/SPL programs, built-in program types, and
 	// in-crate preset visualizers).
-	IsUnregistered bool `json:"isUnregistered"`
+	IsUnregistered        bool                           `json:"isUnregistered"`
+	ParsedInstructionData *SolanaParsedInstructionDataIo `json:"parsedInstructionData,omitempty"`
+	// RpcParsedData is the RPC's own jsonParsed decode, present when the
+	// caller's simulateTransaction result returned this instruction jsonParsed
+	// instead of raw. Mutually exclusive with ParsedInstructionData.
+	RpcParsedData *SolanaRpcParsedInstructionDataIo `json:"rpcParsedData,omitempty"`
 }
 
 // SolanaAccount mirrors intermediate.rs SolanaAccount.
@@ -116,6 +126,15 @@ type SolanaParsedInstructionDataIo struct {
 	IdlHash             string            `json:"idlHash"`
 }
 
+// SolanaRpcParsedInstructionDataIo mirrors intermediate.rs
+// SolanaRpcParsedInstructionDataIo: the RPC's own jsonParsed decode of a
+// simulated instruction, distinct from the parser's own IDL-decoded
+// SolanaParsedInstructionDataIo.
+type SolanaRpcParsedInstructionDataIo struct {
+	InstructionType string `json:"instructionType"`
+	InfoJSON        string `json:"infoJson"`
+}
+
 // DecodeSolanaIntermediateOutput decodes the raw Borsh bytes of the parser's
 // Solana intermediate output. It rejects any schema_version other than the one
 // this client mirrors, so a parser-side layout change surfaces as an explicit
@@ -150,6 +169,16 @@ func normalizeOptionals(out *SolanaIntermediateOutput) {
 			out.Instructions[i].ParsedInstructionData = nil
 		}
 	}
+	for i := range out.SimulatedInstructions {
+		p := out.SimulatedInstructions[i].ParsedInstructionData
+		if p != nil && p.isZero() {
+			out.SimulatedInstructions[i].ParsedInstructionData = nil
+		}
+		r := out.SimulatedInstructions[i].RpcParsedData
+		if r != nil && r.isZero() {
+			out.SimulatedInstructions[i].RpcParsedData = nil
+		}
+	}
 	for i := range out.SplTransfers {
 		t := &out.SplTransfers[i]
 		t.TokenMint = nilIfEmpty(t.TokenMint)
@@ -163,6 +192,12 @@ func normalizeOptionals(out *SolanaIntermediateOutput) {
 func (p *SolanaParsedInstructionDataIo) isZero() bool {
 	return p.InstructionName == "" && p.Discriminator == "" && len(p.NamedAccounts) == 0 &&
 		p.ProgramCallArgsJSON == "" && p.IdlSource == "" && p.IdlHash == ""
+}
+
+// isZero reports whether every field of the RPC-parsed instruction data is the
+// zero value — the shape borsh-go produces for an Option::None.
+func (r *SolanaRpcParsedInstructionDataIo) isZero() bool {
+	return r.InstructionType == "" && r.InfoJSON == ""
 }
 
 func nilIfEmpty(s *string) *string {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/crypto"
 	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
@@ -125,6 +126,8 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		httpReq.Header.Set("X-Stamp", stamp)
 	}
 
+	fmt.Fprintf(os.Stderr, "DEBUGVSP_REQUEST: %s\n", string(reqJSON))
+
 	// Send request
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -137,12 +140,15 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	// Check HTTP status
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("turnkey API returned non-OK status: %d, body: %s", resp.StatusCode, string(bodyBytes))
+		fmt.Fprintf(os.Stderr, "DEBUGVSP_RESPONSE_ERR: status=%d body=%s\n", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("turnkey API returned non-OK status: %d, body: %s, sentRequest: %s", resp.StatusCode, string(bodyBytes), string(reqJSON))
 	}
 
 	// Parse response
 	var turnkeyResp TurnkeyVisualSignResponse
 	bodyBytes, _ := io.ReadAll(resp.Body)
+
+	fmt.Fprintf(os.Stderr, "DEBUGVSP_RESPONSE: %s\n", string(bodyBytes))
 
 	err = json.Unmarshal(bodyBytes, &turnkeyResp)
 	if err != nil {

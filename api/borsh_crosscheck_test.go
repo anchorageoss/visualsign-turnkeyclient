@@ -84,52 +84,65 @@ func TestCrosscheckGoVsRustOnDeployedProto(t *testing.T) {
 			// Ground truth from visualsign-parser's own borsh::to_vec over
 			// ChainMetadata { metadata: Some(Solana(SolanaMetadata { network_id:
 			// None, idl: None, idl_mappings: {}, simulate_transaction_result:
-			// Some(SimulateTransactionResult { instructions: [one System Program
-			// call] }) })) }. Pins the solanaVariant discriminant (01, second
-			// oneof variant) and borshSolanaMetadata's field order (NetworkID,
-			// Idl, IdlMappings, SimulateTransactionResult — matching the Rust
-			// struct's *declaration* order, not proto tag order: network_id is
-			// tag 2, idl is tag 1).
+			// Some(SimulateTransactionResult { inner_instructions: [group 0:
+			// one System Program call] }) })) }. Pins the solanaVariant
+			// discriminant (01, second oneof variant) and
+			// borshSolanaMetadata's field order (NetworkID, Idl, IdlMappings,
+			// SimulateTransactionResult — matching the Rust struct's
+			// *declaration* order, not proto tag order: network_id is tag 2,
+			// idl is tag 1).
 			name: "solana simulate transaction result",
 			meta: &RequestChainMetadata{
 				Solana: &SolanaChainMetadata{
 					SimulateTransactionResult: &SimulateTransactionResult{
-						Instructions: []SimulatedInstruction{
+						InnerInstructions: []InnerInstructionGroup{
 							{
-								ProgramKey:         "11111111111111111111111111111111",
-								InstructionDataHex: "0200000001000000000000000000",
+								InstructionIndex: 0,
+								Instructions: []SimulatedInstruction{
+									{
+										ProgramKey:         "11111111111111111111111111111111",
+										InstructionDataHex: "0200000001000000000000000000",
+										StackHeight:        2,
+									},
+								},
 							},
 						},
 					},
 				},
 			},
-			rustBytes:  "010100000000000001010000002000000031313131313131313131313131313131313131313131313131313131313131311c00000030323030303030303031303030303030303030303030303030303030",
-			rustDigest: "35340417e7780cdf407fea7c13355076f7f85e9a7bc0e293e3db96c1317a6e7d",
+			rustBytes:  "0101000000000000010100000000000000010000002000000031313131313131313131313131313131313131313131313131313131313131311c000000303230303030303030313030303030303030303030303030303030300000000002000000",
+			rustDigest: "4b6a827be705c76735179cc576e7651a0a40361b057219a85ab8edddc2029e52",
 		},
 		{
-			// Same ground-truth process, with two flattened calls (a Squads
-			// call followed by a System Program transfer -- simulated_instructions
-			// is a flat list with no nesting/index, so this is simply two
-			// entries rather than one call with an attached inner call).
-			name: "solana simulate transaction result with two flattened calls",
+			// Same ground-truth process, with one group (top-level instruction
+			// 0) containing two inner calls -- a Squads call followed by a
+			// System Program transfer.
+			name: "solana simulate transaction result with two calls in one group",
 			meta: &RequestChainMetadata{
 				Solana: &SolanaChainMetadata{
 					SimulateTransactionResult: &SimulateTransactionResult{
-						Instructions: []SimulatedInstruction{
+						InnerInstructions: []InnerInstructionGroup{
 							{
-								ProgramKey:         "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
-								InstructionDataHex: "1f9a5c",
-							},
-							{
-								ProgramKey:         "11111111111111111111111111111111",
-								InstructionDataHex: "0200000001000000000000000000",
+								InstructionIndex: 0,
+								Instructions: []SimulatedInstruction{
+									{
+										ProgramKey:         "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf",
+										InstructionDataHex: "1f9a5c",
+										StackHeight:        2,
+									},
+									{
+										ProgramKey:         "11111111111111111111111111111111",
+										InstructionDataHex: "0200000001000000000000000000",
+										StackHeight:        2,
+									},
+								},
 							},
 						},
 					},
 				},
 			},
-			rustBytes:  "010100000000000001020000002b000000535144533465703635543836397a4d4d424b7975557136614436456754753870734d6a6b766a3532704366060000003166396135632000000031313131313131313131313131313131313131313131313131313131313131311c00000030323030303030303031303030303030303030303030303030303030",
-			rustDigest: "4aeea9c96616756d881a8122fcb4f1ddd96183cc27056be4900c2061019453a6",
+			rustBytes:  "0101000000000000010100000000000000020000002b000000535144533465703635543836397a4d4d424b7975557136614436456754753870734d6a6b766a35327043660600000031663961356300000000020000002000000031313131313131313131313131313131313131313131313131313131313131311c000000303230303030303030313030303030303030303030303030303030300000000002000000",
+			rustDigest: "cb055aa0156a40d4acfcaaf6c4cb06b453d9acb228880809a28236c07e470e0d",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -21,6 +21,12 @@ var AttestationBase64 []byte
 //go:embed solana_intermediate_sample.json
 var SolanaIntermediateSampleJSON []byte
 
+// SolanaIntermediateSimulatedSampleJSON captures a create-ATA parse response
+// with a caller-supplied simulateTransactionResult (one inner CPI).
+//
+//go:embed solana_intermediate_simulated_sample.json
+var SolanaIntermediateSimulatedSampleJSON []byte
+
 // SolanaIntermediateGatewayResponseJSON is the full Turnkey-shaped response the
 // local parser gateway returned for SolanaIntermediateUnsignedPayload with
 // include_intermediate_output=true (mock boot proof + real app signature +
