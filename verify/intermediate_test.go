@@ -89,7 +89,11 @@ func TestComputeBorshParsedTransactionPayloadHash_IntermediateCrosscheck(t *test
 }
 
 // TestDecodeSolanaIntermediateOutput_SimulatedInstructions guards against
-// SolanaSimulatedInstruction field-order drift vs the Rust struct.
+// SolanaSimulatedInstruction field-order drift vs the Rust struct. The
+// fixture is a real mainnet Kamino Lend leveraged deposit-and-borrow
+// transaction (7 inner CPIs into KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD,
+// decoded via the in-crate Kamino preset IDL merged into idl_records --
+// RegisteredSource::Preset, IdlSource "Custom").
 func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
 	var s solanaIntermediateSample
 	require.NoError(t, json.Unmarshal(testdata.SolanaIntermediateSimulatedSampleJSON, &s))
@@ -99,17 +103,20 @@ func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
 
 	out, err := DecodeSolanaIntermediateOutput(raw)
 	require.NoError(t, err)
-	require.Len(t, out.SimulatedInstructions, 1)
+	require.Len(t, out.SimulatedInstructions, 13)
 
 	sim := out.SimulatedInstructions[0]
-	require.EqualValues(t, 0, sim.InstructionIndex)
+	require.EqualValues(t, 2, sim.Index)
 	require.EqualValues(t, 2, sim.StackHeight)
-	require.Equal(t, "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", sim.ProgramKey)
-	require.Equal(t, "150700", sim.InstructionDataHex)
-	require.False(t, sim.IsUnregistered)
-	require.Len(t, sim.Accounts, 1)
-	require.Equal(t, "4DPzZ5uQzoRuphHdaUNK3xCmWTREbmBu9UK9ULEazYYA", sim.Accounts[0].AccountKey)
-	require.Nil(t, sim.ParsedInstructionData)
+	require.Equal(t, "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD", sim.ProgramKey)
+	require.Equal(t, "02da8aeb4fc91966", sim.InstructionDataHex)
+	require.Equal(t, RegisteredSourcePreset, sim.RegisteredSource)
+	require.Len(t, sim.Accounts, 6)
+	require.Equal(t, "H3t6qZ1JkguCNTi9uzVKqQ7dvt2cum4XiXWom6Gn5e5S", sim.Accounts[0].AccountKey)
+	require.Nil(t, sim.IdlParseError)
+	require.NotNil(t, sim.ParsedInstructionData)
+	require.Equal(t, "refreshReserve", sim.ParsedInstructionData.InstructionName)
+	require.Equal(t, "Custom", sim.ParsedInstructionData.IdlSource)
 }
 
 // TestDecodeSolanaIntermediateOutput_SchemaGuard ensures an unexpected

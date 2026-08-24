@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"fmt"
 	"sort"
 
@@ -98,16 +99,16 @@ type borshKeyValue struct {
 
 // borshSolanaMetadata mirrors parser.rs SolanaMetadata. Field order must match
 // the Rust struct declaration order (network_id, idl, idl_mappings,
-// simulate_transaction_result), which is what Borsh serializes in — NOT proto
-// tag order (network_id is tag 2, idl is tag 1). This client only ever sends
-// SimulateTransactionResult, never IDL data, so NetworkID and IdlMappings are
-// always the zero value (nil/empty) here; that still matches the Rust side's
-// None/empty-map encoding for those fields.
+// simulated_transaction_result), which is what Borsh serializes in — NOT
+// proto tag order (network_id is tag 2, idl is tag 1). This client never
+// sends IDL data, so NetworkID and IdlMappings are always the zero value
+// (nil/empty) here; that still matches the Rust side's None/empty-map
+// encoding for those fields.
 type borshSolanaMetadata struct {
-	NetworkID                 *string                         // Option<String>
-	Idl                       *borshIdlPlaceholder            // Option<Idl> — always None; this client never sets it
-	IdlMappings               []borshIdlMappingEntry          // HashMap<String, Idl> — always empty; this client never sets it
-	SimulateTransactionResult *borshSimulateTransactionResult // Option<SimulateTransactionResult>
+	NetworkID                  *string                // Option<String>
+	Idl                        *borshIdlPlaceholder   // Option<Idl> — always None; this client never sets it
+	IdlMappings                []borshIdlMappingEntry // HashMap<String, Idl> — always empty; this client never sets it
+	SimulatedTransactionResult *string                // Option<String> — base64 raw simulateTransaction RPC response
 }
 
 // borshIdlPlaceholder mirrors parser.rs Idl closely enough to type-check the
@@ -123,43 +124,6 @@ type borshIdlPlaceholder struct {
 type borshIdlMappingEntry struct {
 	ProgramID string
 	Idl       borshIdlPlaceholder
-}
-
-// borshSimulateTransactionResult mirrors parser.rs SimulateTransactionResult.
-type borshSimulateTransactionResult struct {
-	InnerInstructions []borshInnerInstructionGroup // Vec<InnerInstructionGroup>
-}
-
-// borshInnerInstructionGroup mirrors parser.rs InnerInstructionGroup. Field
-// order must match its Rust struct declaration order.
-type borshInnerInstructionGroup struct {
-	InstructionIndex uint32
-	Instructions     []borshSimulatedInstruction // Vec<SimulatedInstruction>
-}
-
-// borshSimulatedInstruction mirrors parser.rs SimulatedInstruction. Field
-// order must match its Rust struct declaration order.
-type borshSimulatedInstruction struct {
-	ProgramKey         string
-	InstructionDataHex string
-	Accounts           []borshSimulatedInstructionAccount // Vec<SimulatedInstructionAccount>
-	StackHeight        uint32
-	RpcParsedData      *borshRpcParsedInstructionData // Option<RpcParsedInstructionData>
-}
-
-// borshRpcParsedInstructionData mirrors parser.rs RpcParsedInstructionData.
-// Field order must match its Rust struct declaration order.
-type borshRpcParsedInstructionData struct {
-	InstructionType string
-	InfoJSON        string
-}
-
-// borshSimulatedInstructionAccount mirrors parser.rs SimulatedInstructionAccount.
-// Field order must match its Rust struct declaration order.
-type borshSimulatedInstructionAccount struct {
-	AccountKey string
-	IsSigner   bool
-	IsWritable bool
 }
 
 func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
@@ -249,68 +213,17 @@ func (r *RequestChainMetadata) toBorshChainMetadataEthereum() (borshChainMetadat
 
 func (r *RequestChainMetadata) toBorshChainMetadataSolana() (borshChainMetadata, error) {
 	sol := r.Solana
-	var result *borshSimulateTransactionResult
-	if sol.SimulateTransactionResult != nil {
-		result = &borshSimulateTransactionResult{
-			InnerInstructions: toBorshInnerInstructionGroups(sol.SimulateTransactionResult.InnerInstructions),
-		}
+	var rawJSON *string
+	if sol.SimulatedTransactionResult != nil {
+		encoded := base64.StdEncoding.EncodeToString(sol.SimulatedTransactionResult)
+		rawJSON = &encoded
 	}
 	return borshChainMetadata{
 		Metadata: &borshMetadataEnum{
 			Enum: solanaVariant,
 			Solana: borshSolanaMetadata{
-				SimulateTransactionResult: result,
+				SimulatedTransactionResult: rawJSON,
 			},
 		},
 	}, nil
-}
-
-// toBorshInnerInstructionGroups converts InnerInstructionGroups into their
-// Borsh mirror.
-func toBorshInnerInstructionGroups(groups []InnerInstructionGroup) []borshInnerInstructionGroup {
-	out := make([]borshInnerInstructionGroup, len(groups))
-	for i, group := range groups {
-		out[i] = borshInnerInstructionGroup{
-			InstructionIndex: group.InstructionIndex,
-			Instructions:     toBorshSimulatedInstructions(group.Instructions),
-		}
-	}
-	return out
-}
-
-// toBorshSimulatedInstructions converts a list of SimulatedInstruction into
-// its Borsh mirror.
-func toBorshSimulatedInstructions(instructions []SimulatedInstruction) []borshSimulatedInstruction {
-	out := make([]borshSimulatedInstruction, len(instructions))
-	for i, instruction := range instructions {
-		var rpcParsedData *borshRpcParsedInstructionData
-		if instruction.RpcParsedData != nil {
-			rpcParsedData = &borshRpcParsedInstructionData{
-				InstructionType: instruction.RpcParsedData.InstructionType,
-				InfoJSON:        instruction.RpcParsedData.InfoJSON,
-			}
-		}
-		out[i] = borshSimulatedInstruction{
-			ProgramKey:         instruction.ProgramKey,
-			InstructionDataHex: instruction.InstructionDataHex,
-			Accounts:           toBorshSimulatedInstructionAccounts(instruction.Accounts),
-			StackHeight:        instruction.StackHeight,
-			RpcParsedData:      rpcParsedData,
-		}
-	}
-	return out
-}
-
-// toBorshSimulatedInstructionAccounts converts SimulatedInstructionAccounts
-// into their Borsh mirror.
-func toBorshSimulatedInstructionAccounts(accounts []SimulatedInstructionAccount) []borshSimulatedInstructionAccount {
-	out := make([]borshSimulatedInstructionAccount, len(accounts))
-	for i, account := range accounts {
-		out[i] = borshSimulatedInstructionAccount{
-			AccountKey: account.AccountKey,
-			IsSigner:   account.IsSigner,
-			IsWritable: account.IsWritable,
-		}
-	}
-	return out
 }

@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/near/borsh-go"
@@ -22,6 +23,39 @@ import (
 // Bumped to 2 for SolanaSimulatedInstruction.RpcParsedData.
 const SolanaIntermediateSchemaVersion uint16 = 2
 
+// RegisteredSource mirrors intermediate.rs RegisteredSource: where a program
+// ID was registered
+type RegisteredSource borsh.Enum
+
+const (
+	RegisteredSourceNative RegisteredSource = iota
+	RegisteredSourcePreset
+	RegisteredSourceThirdParty
+	RegisteredSourceCallerSupplied
+	RegisteredSourceUnregistered
+)
+
+func (s RegisteredSource) String() string {
+	switch s {
+	case RegisteredSourceNative:
+		return "Native"
+	case RegisteredSourcePreset:
+		return "Preset"
+	case RegisteredSourceThirdParty:
+		return "ThirdParty"
+	case RegisteredSourceCallerSupplied:
+		return "CallerSupplied"
+	case RegisteredSourceUnregistered:
+		return "Unregistered"
+	default:
+		return fmt.Sprintf("RegisteredSource(%d)", uint8(s))
+	}
+}
+
+func (s RegisteredSource) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
+
 // SolanaIntermediateOutput mirrors intermediate.rs SolanaIntermediateOutput.
 // schema_version is the first field so decoders can gate on it before trusting
 // the remaining layout.
@@ -42,35 +76,31 @@ type SolanaIntermediateOutput struct {
 }
 
 // SolanaIntermediateInstruction mirrors intermediate.rs SolanaIntermediateInstruction.
+// Field order matches the Rust struct exactly (Borsh is positional):
+// IdlParseError and RegisteredSource are appended after ParsedInstructionData
+// because they postdate the schema shipped on main -- a consumer built
+// against the prior shape simply stops reading before them.
 type SolanaIntermediateInstruction struct {
 	ProgramKey            string                           `json:"programKey"`
 	Accounts              []SolanaAccount                  `json:"accounts"`
 	InstructionDataHex    string                           `json:"instructionDataHex"`
 	AddressTableLookups   []SolanaSingleAddressTableLookup `json:"addressTableLookups"`
 	ParsedInstructionData *SolanaParsedInstructionDataIo   `json:"parsedInstructionData,omitempty"`
+	IdlParseError         *SolanaIdlParseError             `json:"idlParseError,omitempty"`
+	RegisteredSource      RegisteredSource                 `json:"registeredSource"`
 }
 
 // SolanaSimulatedInstruction mirrors intermediate.rs SolanaSimulatedInstruction:
-// one call (top-level or inner/CPI) a transaction simulation observed.
 type SolanaSimulatedInstruction struct {
-	// InstructionIndex is the position of the top-level instruction that
-	// triggered this call (0-based), matching static decode's indexing.
-	InstructionIndex uint32 `json:"instructionIndex"`
-	// StackHeight is the call depth: 2+ for inner/CPI calls, matching Solana
-	// simulation's own stackHeight semantics.
-	StackHeight        uint32          `json:"stackHeight"`
-	ProgramKey         string          `json:"programKey"`
-	Accounts           []SolanaAccount `json:"accounts"`
-	InstructionDataHex string          `json:"instructionDataHex"`
-	// IsUnregistered is true when ProgramKey is not in the parser's
-	// trusted-program set (native/SPL programs, built-in program types, and
-	// in-crate preset visualizers).
-	IsUnregistered        bool                           `json:"isUnregistered"`
-	ParsedInstructionData *SolanaParsedInstructionDataIo `json:"parsedInstructionData,omitempty"`
-	// RpcParsedData is the RPC's own jsonParsed decode, present when the
-	// caller's simulateTransaction result returned this instruction jsonParsed
-	// instead of raw. Mutually exclusive with ParsedInstructionData.
-	RpcParsedData *SolanaRpcParsedInstructionDataIo `json:"rpcParsedData,omitempty"`
+	Index                 uint32                            `json:"index"`
+	StackHeight           uint32                            `json:"stackHeight"`
+	ProgramKey            string                            `json:"programKey"`
+	Accounts              []SolanaAccount                   `json:"accounts"`
+	InstructionDataHex    string                            `json:"instructionDataHex"`
+	RegisteredSource      RegisteredSource                  `json:"registeredSource"`
+	ParsedInstructionData *SolanaParsedInstructionDataIo    `json:"parsedInstructionData,omitempty"`
+	RpcParsedData         *SolanaRpcParsedInstructionDataIo `json:"rpcParsedData,omitempty"`
+	IdlParseError         *SolanaIdlParseError              `json:"idlParseError,omitempty"`
 }
 
 // SolanaAccount mirrors intermediate.rs SolanaAccount.
@@ -135,6 +165,53 @@ type SolanaRpcParsedInstructionDataIo struct {
 	InfoJSON        string `json:"infoJson"`
 }
 
+// SolanaIdlDataOrAccountsError mirrors the payload shape shared by
+// intermediate.rs SolanaIdlParseError's DataParseError and AccountsMapError
+// struct variants.
+type SolanaIdlDataOrAccountsError struct {
+	InstructionName string `json:"instructionName"`
+	Error           string `json:"error"`
+}
+
+// SolanaIdlParseError mirrors intermediate.rs SolanaIdlParseError: why IDL
+// decode failed for an instruction, when it was attempted at all. Complex
+// Borsh enum -- exactly one of the fields below is populated, selected by
+// Enum. Field order after Enum must match the Rust variant declaration
+// order exactly (DataParseError, AccountsMapError, DiscriminatorNotFound,
+// IdlResolutionError).
+type SolanaIdlParseError struct {
+	Enum                  borsh.Enum `borsh_enum:"true"`
+	DataParseError        SolanaIdlDataOrAccountsError
+	AccountsMapError      SolanaIdlDataOrAccountsError
+	DiscriminatorNotFound string
+	IdlResolutionError    string
+}
+
+func (e *SolanaIdlParseError) MarshalJSON() ([]byte, error) {
+	switch e.Enum {
+	case 0:
+		return json.Marshal(map[string]any{"type": "DataParseError", "instructionName": e.DataParseError.InstructionName, "error": e.DataParseError.Error})
+	case 1:
+		return json.Marshal(map[string]any{"type": "AccountsMapError", "instructionName": e.AccountsMapError.InstructionName, "error": e.AccountsMapError.Error})
+	case 2:
+		return json.Marshal(map[string]any{"type": "DiscriminatorNotFound", "error": e.DiscriminatorNotFound})
+	case 3:
+		return json.Marshal(map[string]any{"type": "IdlResolutionError", "error": e.IdlResolutionError})
+	default:
+		return json.Marshal(map[string]any{"type": fmt.Sprintf("SolanaIdlParseError(%d)", uint8(e.Enum))})
+	}
+}
+
+// isZero reports whether this is the zero value borsh-go produces for an
+// Option::None: Enum 0 (DataParseError) with an empty payload. The parser
+// never emits a genuine DataParseError with both strings empty (error is
+// always a real, non-empty message from solana_parser), so this degenerate
+// shape unambiguously means None in practice, same tradeoff as the other
+// isZero methods below.
+func (e *SolanaIdlParseError) isZero() bool {
+	return e.Enum == 0 && e.DataParseError.InstructionName == "" && e.DataParseError.Error == ""
+}
+
 // DecodeSolanaIntermediateOutput decodes the raw Borsh bytes of the parser's
 // Solana intermediate output. It rejects any schema_version other than the one
 // this client mirrors, so a parser-side layout change surfaces as an explicit
@@ -168,6 +245,10 @@ func normalizeOptionals(out *SolanaIntermediateOutput) {
 		if p != nil && p.isZero() {
 			out.Instructions[i].ParsedInstructionData = nil
 		}
+		e := out.Instructions[i].IdlParseError
+		if e != nil && e.isZero() {
+			out.Instructions[i].IdlParseError = nil
+		}
 	}
 	for i := range out.SimulatedInstructions {
 		p := out.SimulatedInstructions[i].ParsedInstructionData
@@ -177,6 +258,10 @@ func normalizeOptionals(out *SolanaIntermediateOutput) {
 		r := out.SimulatedInstructions[i].RpcParsedData
 		if r != nil && r.isZero() {
 			out.SimulatedInstructions[i].RpcParsedData = nil
+		}
+		e := out.SimulatedInstructions[i].IdlParseError
+		if e != nil && e.isZero() {
+			out.SimulatedInstructions[i].IdlParseError = nil
 		}
 	}
 	for i := range out.SplTransfers {
