@@ -142,6 +142,7 @@ func TestCreateSignablePayload(t *testing.T) {
 		require.Error(t, err)
 		require.Nil(t, result)
 		require.Contains(t, err.Error(), "non-OK status")
+		require.NotContains(t, err.Error(), "test-payload")
 	})
 
 	t.Run("invalid JSON response", func(t *testing.T) {

@@ -137,7 +137,7 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	// Check HTTP status
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("turnkey API returned non-OK status: %d, body: %s, sentRequest: %s", resp.StatusCode, string(bodyBytes), string(reqJSON))
+		return nil, fmt.Errorf("turnkey API returned non-OK status: %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	// Parse response
