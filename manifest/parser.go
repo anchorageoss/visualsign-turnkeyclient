@@ -1,7 +1,9 @@
 package manifest
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -109,30 +111,72 @@ func DecodeRawManifestFromFile(filePath string, version ManifestVersion) (*Manif
 	return m, manifestBytes, nil
 }
 
+// EnvelopeFormat identifies which decoder a manifest envelope's bytes select.
+type EnvelopeFormat int
+
+const (
+	// EnvelopeFormatBorsh is QoS's older Borsh-encoded envelope.
+	EnvelopeFormatBorsh EnvelopeFormat = iota
+	// EnvelopeFormatJSON is QoS's JSON (v2) envelope.
+	EnvelopeFormatJSON
+)
+
+// DetectEnvelopeFormat sniffs data to select a decoder: a JSON manifest
+// envelope always begins with '{' and is valid JSON in full. A Borsh
+// envelope's leading bytes are a little-endian u32 length prefix, which can
+// coincidentally equal '{' (0x7B) for some namespace-name lengths, so a
+// single leading byte is not enough to distinguish the formats; the rest of
+// the bytes must also parse as valid JSON. This is a parser-selection
+// discriminator only, not a trust boundary: each decoder still fails closed
+// independently, with no fallback to the other format on a decode failure.
+func DetectEnvelopeFormat(data []byte) EnvelopeFormat {
+	trimmed := bytes.TrimLeft(data, " \t\n\r")
+	if len(trimmed) > 0 && trimmed[0] == '{' && json.Valid(trimmed) {
+		return EnvelopeFormatJSON
+	}
+	return EnvelopeFormatBorsh
+}
+
 // DecodeManifestEnvelopeFromBase64 decodes a manifest envelope from base64.
+// The envelope bytes are sniffed to select a decoder: a JSON (v2) envelope
+// is decoded and canonicalized via the QOS JSON path, anything else is
+// decoded as Borsh using the given version. There is no fallback between
+// formats: a malformed envelope of one format is never retried as the other.
+//
+// For a JSON envelope, the returned *ManifestEnvelope and *Manifest are a
+// lossy projection (see ManifestJSONV2.ToManifest) for reporting purposes
+// only; manifestBytes is always the true QOS canonical JSON bytes that
+// should be hashed and compared against attestation UserData.
 func DecodeManifestEnvelopeFromBase64(manifestB64 string, version ManifestVersion) (*ManifestEnvelope, *Manifest, []byte, []byte, error) {
 	envelopeBytes, err := base64.StdEncoding.DecodeString(manifestB64)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to decode base64: %w", err)
 	}
-
-	env, err := decodeEnvelope(envelopeBytes, version)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
-	manifestBytes, err := reserializeManifest(env.Manifest, version)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	return env, &env.Manifest, manifestBytes, envelopeBytes, nil
+	return DecodeManifestEnvelopeFromBytes(envelopeBytes, version)
 }
 
-// DecodeManifestEnvelopeFromFile decodes a manifest envelope from a binary file.
+// DecodeManifestEnvelopeFromFile decodes a manifest envelope from a file. See
+// DecodeManifestEnvelopeFromBase64 for the format-sniffing behavior.
 func DecodeManifestEnvelopeFromFile(filePath string, version ManifestVersion) (*ManifestEnvelope, *Manifest, []byte, []byte, error) {
 	envelopeBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to read file: %w", err)
+	}
+	return DecodeManifestEnvelopeFromBytes(envelopeBytes, version)
+}
+
+// DecodeManifestEnvelopeFromBytes decodes a manifest envelope whose raw bytes
+// are already in hand (e.g. after a caller has read a file or base64-decoded
+// a string for its own purposes, such as sniffing the format up front). See
+// DecodeManifestEnvelopeFromBase64 for the format-sniffing behavior.
+func DecodeManifestEnvelopeFromBytes(envelopeBytes []byte, version ManifestVersion) (*ManifestEnvelope, *Manifest, []byte, []byte, error) {
+	if DetectEnvelopeFormat(envelopeBytes) == EnvelopeFormatJSON {
+		jsonEnv, manifestBytes, err := DecodeJSONManifestEnvelope(envelopeBytes)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		projected := jsonEnv.ToManifestEnvelope()
+		return &projected, &projected.Manifest, manifestBytes, envelopeBytes, nil
 	}
 
 	env, err := decodeEnvelope(envelopeBytes, version)
