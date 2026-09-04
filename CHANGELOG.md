@@ -7,6 +7,9 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 
 ## [Unreleased]
 
+### Added
+- QOS JSON (v2) manifest envelope parsing, alongside the existing Borsh envelope: format is auto-detected (no `--api-version` change required), hashed via QOS canonical JSON per the [qos_json spec](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md), and rejects duplicate keys, unknown fields, and non-`"v2"` versions
+
 ### Changed
 - Use commit-count-based auto-versioning derived from git history
 - Release workflow triggers on push to `main` (auto-creates tags)
