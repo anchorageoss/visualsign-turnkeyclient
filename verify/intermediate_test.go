@@ -119,6 +119,48 @@ func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
 	require.Equal(t, "Preset", sim.ParsedInstructionData.IdlSource)
 }
 
+// TestDecodeSolanaIntermediateOutput_SimulationError pins each
+// SolanaSimulationError discriminant end-to-end through Borsh
+// encode/decode/normalize, so a discriminant or normalizeOptionals bug (e.g.
+// misreading a real error as None, or vice versa) fails a test instead of
+// only ever being exercised by the untested success path.
+func TestDecodeSolanaIntermediateOutput_SimulationError(t *testing.T) {
+	variants := []SolanaSimulationError{
+		SolanaSimulationErrorInvalidBase64,
+		SolanaSimulationErrorInvalidJSON,
+		SolanaSimulationErrorSimulationFailed,
+		SolanaSimulationErrorCallerIdlRecordsUnusable,
+		SolanaSimulationErrorCompiledInstruction,
+		SolanaSimulationErrorInvalidInstructionData,
+	}
+	for _, v := range variants {
+		t.Run(v.String(), func(t *testing.T) {
+			v := v
+			in := SolanaIntermediateOutput{
+				SchemaVersion:   SolanaIntermediateSchemaVersion,
+				SimulationError: &v,
+			}
+			raw, err := borsh.Serialize(in)
+			require.NoError(t, err)
+
+			out, err := DecodeSolanaIntermediateOutput(raw)
+			require.NoError(t, err)
+			require.NotNil(t, out.SimulationError)
+			require.Equal(t, v, *out.SimulationError)
+		})
+	}
+
+	t.Run("nil stays nil", func(t *testing.T) {
+		in := SolanaIntermediateOutput{SchemaVersion: SolanaIntermediateSchemaVersion}
+		raw, err := borsh.Serialize(in)
+		require.NoError(t, err)
+
+		out, err := DecodeSolanaIntermediateOutput(raw)
+		require.NoError(t, err)
+		require.Nil(t, out.SimulationError)
+	})
+}
+
 // TestDecodeSolanaIntermediateOutput_SchemaGuard ensures an unexpected
 // schema_version is rejected rather than silently misdecoded.
 func TestDecodeSolanaIntermediateOutput_SchemaGuard(t *testing.T) {

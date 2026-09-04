@@ -13,16 +13,18 @@ var ManifestBin []byte
 //go:embed turnkey-attestation.base64
 var AttestationBase64 []byte
 
-// SolanaIntermediateSampleJSON is a captured local-parser response (branch
-// prof-355) carrying a real Borsh-encoded Solana intermediate output plus the
-// enclave-signed message digest, used to cross-check the Go Borsh decode and
-// signed-digest recompute against Rust output.
+// SolanaIntermediateSampleJSON is a captured local-parser response carrying a
+// real Borsh-encoded Solana intermediate output plus the enclave-signed
+// message digest, used to cross-check the Go Borsh decode and signed-digest
+// recompute against Rust output.
 //
 //go:embed solana_intermediate_sample.json
 var SolanaIntermediateSampleJSON []byte
 
-// SolanaIntermediateSimulatedSampleJSON captures a create-ATA parse response
-// with a caller-supplied simulateTransactionResult (one inner CPI).
+// SolanaIntermediateSimulatedSampleJSON captures a real mainnet Kamino Lend
+// leveraged deposit-and-borrow transaction with a caller-supplied
+// simulateTransactionResult (15 simulated inner instructions, a mix of
+// Preset/Native/Unregistered RegisteredSource).
 //
 //go:embed solana_intermediate_simulated_sample.json
 var SolanaIntermediateSimulatedSampleJSON []byte

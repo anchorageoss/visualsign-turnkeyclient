@@ -134,7 +134,7 @@ type SolanaIntermediateInstruction struct {
 	RegisteredSource      RegisteredSource                 `json:"registeredSource"`
 }
 
-// SolanaSimulatedInstruction mirrors intermediate.rs SolanaSimulatedInstruction:
+// SolanaSimulatedInstruction mirrors intermediate.rs SolanaSimulatedInstruction.
 type SolanaSimulatedInstruction struct {
 	Index                 uint32                            `json:"index"`
 	StackHeight           uint32                            `json:"stackHeight"`
