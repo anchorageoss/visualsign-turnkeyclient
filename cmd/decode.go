@@ -2,9 +2,13 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"sort"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 	"github.com/anchorageoss/visualsign-turnkeyclient/verify"
@@ -145,6 +149,36 @@ func decodeManifestEnvelopeCommand() *cli.Command {
 	}
 }
 
+// printHashesAndApprovals writes the "Hashes" and "Approvals" sections shared
+// by both the Borsh and JSON envelope text-output formats.
+func printHashesAndApprovals(manifestHash, envelopeHash string, manifestSetApprovals, shareSetApprovals int) {
+	fmt.Fprintf(os.Stderr, "\nHashes:\n")
+	fmt.Fprintf(os.Stderr, "  Manifest: %s\n", manifestHash)
+	fmt.Fprintf(os.Stderr, "  Envelope: %s\n", envelopeHash)
+
+	fmt.Fprintf(os.Stderr, "\nApprovals:\n")
+	fmt.Fprintf(os.Stderr, "  Manifest Set Approvals: %d\n", manifestSetApprovals)
+	fmt.Fprintf(os.Stderr, "  Share Set Approvals: %d\n", shareSetApprovals)
+}
+
+// printIndexedQuoted writes header, then one "<indent>[i] %q" line per item.
+func printIndexedQuoted(w io.Writer, indent, header string, items []string) {
+	_, _ = fmt.Fprint(w, header)
+	for i, item := range items {
+		_, _ = fmt.Fprintf(w, "%s[%d] %q\n", indent, i, item)
+	}
+}
+
+// printPCRs writes the "Enclave (Nitro Config)" section shared by both the
+// Borsh and JSON envelope text-output formats.
+func printPCRs(w io.Writer, pcr0, pcr1, pcr2, pcr3 []byte) {
+	_, _ = fmt.Fprintf(w, "\nEnclave (Nitro Config):\n")
+	_, _ = fmt.Fprintf(w, "  PCR0: %s\n", hex.EncodeToString(pcr0))
+	_, _ = fmt.Fprintf(w, "  PCR1: %s\n", hex.EncodeToString(pcr1))
+	_, _ = fmt.Fprintf(w, "  PCR2: %s\n", hex.EncodeToString(pcr2))
+	_, _ = fmt.Fprintf(w, "  PCR3: %s\n", hex.EncodeToString(pcr3))
+}
+
 func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) error {
 	filePath := cmd.String("file")
 	b64 := cmd.String("base64")
@@ -162,20 +196,96 @@ func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) err
 		return err
 	}
 
-	var envelope *manifest.ManifestEnvelope
-	var manifestBytes, envelopeBytes []byte
-
+	var envelopeBytes []byte
 	if filePath != "" {
-		envelope, _, manifestBytes, envelopeBytes, err = manifest.DecodeManifestEnvelopeFromFile(filePath, mv)
+		envelopeBytes, err = os.ReadFile(filePath)
 	} else {
-		envelope, _, manifestBytes, envelopeBytes, err = manifest.DecodeManifestEnvelopeFromBase64(b64, mv)
+		envelopeBytes, err = base64.StdEncoding.DecodeString(b64)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read manifest envelope: %w", err)
 	}
 
+	if manifest.DetectEnvelopeFormat(envelopeBytes) == manifest.EnvelopeFormatJSON {
+		jsonEnv, manifestBytes, jsonErr := manifest.DecodeJSONManifestEnvelope(envelopeBytes)
+		if jsonErr != nil {
+			return fmt.Errorf("failed to decode QOS JSON manifest envelope: %w", jsonErr)
+		}
+
+		manifestHash := manifest.ComputeHash(manifestBytes)
+		envelopeHash := manifest.ComputeHash(envelopeBytes)
+
+		formatter := verify.NewFormatter()
+		if asJSON {
+			output := formatter.FormatManifestEnvelopeJSONV2(jsonEnv)
+			output["manifestHash"] = manifestHash
+			output["envelopeHash"] = envelopeHash
+
+			jsonBytes, err := json.MarshalIndent(output, "", "  ")
+			if err != nil {
+				return fmt.Errorf("failed to marshal JSON: %w", err)
+			}
+			fmt.Println(string(jsonBytes))
+		} else {
+			fmt.Fprintf(os.Stderr, "=== QoS JSON Manifest Decoded ===\n\n")
+			fmt.Fprintf(os.Stderr, "Namespace:\n")
+			fmt.Fprintf(os.Stderr, "  Name: %q\n", jsonEnv.Manifest.Namespace.Name)
+			fmt.Fprintf(os.Stderr, "  Nonce: %d\n", jsonEnv.Manifest.Namespace.Nonce)
+			fmt.Fprintf(os.Stderr, "  Quorum Key: %s\n", hex.EncodeToString(jsonEnv.Manifest.Namespace.QuorumKey))
+
+			fmt.Fprintf(os.Stderr, "\nPivot Config:\n")
+			fmt.Fprintf(os.Stderr, "  Binary Hash: %x\n", []byte(jsonEnv.Manifest.Pivot.Hash))
+			fmt.Fprintf(os.Stderr, "  Restart Policy: %s\n", jsonEnv.Manifest.Pivot.Restart)
+			printIndexedQuoted(os.Stderr, "    ", "  Args:\n", jsonEnv.Manifest.Pivot.Args)
+			if len(jsonEnv.Manifest.Pivot.BridgeConfig) > 0 {
+				fmt.Fprintf(os.Stderr, "  BridgeConfig:\n")
+				for i, bc := range jsonEnv.Manifest.Pivot.BridgeConfig {
+					host := ""
+					if bc.Host != nil {
+						host = *bc.Host
+					}
+					fmt.Fprintf(os.Stderr, "    [%d] type=%s host=%q port=%d\n", i, bc.Type, host, bc.Port)
+				}
+			}
+			fmt.Fprintf(os.Stderr, "  DebugMode: %v\n", jsonEnv.Manifest.Pivot.DebugMode)
+			if len(jsonEnv.Manifest.Pivot.Env) > 0 {
+				fmt.Fprintf(os.Stderr, "  Env:\n")
+				names := make([]string, 0, len(jsonEnv.Manifest.Pivot.Env))
+				for name := range jsonEnv.Manifest.Pivot.Env {
+					names = append(names, name)
+				}
+				sort.Strings(names)
+				for _, name := range names {
+					if value := jsonEnv.Manifest.Pivot.Env[name]; value.Plain != nil {
+						fmt.Fprintf(os.Stderr, "    %q=%q\n", name, value.Plain.Value)
+					}
+				}
+			}
+
+			if jsonEnv.Manifest.Dns != nil {
+				printIndexedQuoted(os.Stderr, "  ", "\nDNS Resolvers:\n", jsonEnv.Manifest.Dns.Resolvers)
+			}
+
+			fmt.Fprintf(os.Stderr, "\nManifest Set:\n")
+			fmt.Fprintf(os.Stderr, "  Threshold: %d\n", jsonEnv.Manifest.ManifestSet.Threshold)
+			fmt.Fprintf(os.Stderr, "  Members: %d\n", len(jsonEnv.Manifest.ManifestSet.Members))
+
+			fmt.Fprintf(os.Stderr, "\nShare Set:\n")
+			fmt.Fprintf(os.Stderr, "  Threshold: %d\n", jsonEnv.Manifest.ShareSet.Threshold)
+			fmt.Fprintf(os.Stderr, "  Members: %d\n", len(jsonEnv.Manifest.ShareSet.Members))
+
+			printPCRs(os.Stderr, jsonEnv.Manifest.Enclave.Pcr0, jsonEnv.Manifest.Enclave.Pcr1, jsonEnv.Manifest.Enclave.Pcr2, jsonEnv.Manifest.Enclave.Pcr3)
+
+			printHashesAndApprovals(manifestHash, envelopeHash, len(jsonEnv.ManifestSetApprovals), len(jsonEnv.ShareSetApprovals))
+		}
+		return nil
+	}
+
+	envelope, _, manifestBytes, envelopeBytes, err := manifest.DecodeManifestEnvelopeFromBytes(envelopeBytes, mv)
 	if err != nil {
 		return fmt.Errorf("failed to decode manifest envelope: %w", err)
 	}
 
-	// Compute hashes
 	manifestHash := manifest.ComputeHash(manifestBytes)
 	envelopeHash := manifest.ComputeHash(envelopeBytes)
 
@@ -206,19 +316,9 @@ func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) err
 		fmt.Fprintf(os.Stderr, "  Threshold: %d\n", envelope.Manifest.ManifestSet.Threshold)
 		fmt.Fprintf(os.Stderr, "  Members: %d\n", len(envelope.Manifest.ManifestSet.Members))
 
-		fmt.Fprintf(os.Stderr, "\nEnclave (Nitro Config):\n")
-		fmt.Fprintf(os.Stderr, "  PCR0: %s\n", fmt.Sprintf("%x", envelope.Manifest.Enclave.Pcr0))
-		fmt.Fprintf(os.Stderr, "  PCR1: %s\n", fmt.Sprintf("%x", envelope.Manifest.Enclave.Pcr1))
-		fmt.Fprintf(os.Stderr, "  PCR2: %s\n", fmt.Sprintf("%x", envelope.Manifest.Enclave.Pcr2))
-		fmt.Fprintf(os.Stderr, "  PCR3: %s\n", fmt.Sprintf("%x", envelope.Manifest.Enclave.Pcr3))
+		printPCRs(os.Stderr, envelope.Manifest.Enclave.Pcr0, envelope.Manifest.Enclave.Pcr1, envelope.Manifest.Enclave.Pcr2, envelope.Manifest.Enclave.Pcr3)
 
-		fmt.Fprintf(os.Stderr, "\nHashes:\n")
-		fmt.Fprintf(os.Stderr, "  Manifest: %s\n", manifestHash)
-		fmt.Fprintf(os.Stderr, "  Envelope: %s\n", envelopeHash)
-
-		fmt.Fprintf(os.Stderr, "\nApprovals:\n")
-		fmt.Fprintf(os.Stderr, "  Manifest Set Approvals: %d\n", len(envelope.ManifestSetApprovals))
-		fmt.Fprintf(os.Stderr, "  Share Set Approvals: %d\n", len(envelope.ShareSetApprovals))
+		printHashesAndApprovals(manifestHash, envelopeHash, len(envelope.ManifestSetApprovals), len(envelope.ShareSetApprovals))
 	}
 
 	return nil

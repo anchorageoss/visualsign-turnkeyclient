@@ -79,4 +79,8 @@ func TestApiVersionToManifestVersion(t *testing.T) {
 	_, err = apiVersionToManifestVersion("v3")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported --api-version")
+
+	_, err = apiVersionToManifestVersion("jsonv2")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported --api-version")
 }
