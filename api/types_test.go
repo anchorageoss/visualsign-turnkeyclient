@@ -57,3 +57,78 @@ func TestABIValue_JSONOmitsNilFields(t *testing.T) {
 	require.NotContains(t, m, "implementationAddress")
 	require.NotContains(t, m, "signature")
 }
+
+// TestRequestChainMetadata_JSONRoundTrip pins the gateway's internally-tagged
+// wire shape ({"chain": "CHAIN_...", ...fields...}) in both directions.
+// UnmarshalJSON exists solely to parse cmd/verify.go's --chain-metadata flag
+// value; without it, a caller-supplied JSON string silently produces an empty
+// RequestChainMetadata (see the "must" review comment on api/types.go).
+func TestRequestChainMetadata_JSONRoundTrip(t *testing.T) {
+	t.Run("ethereum", func(t *testing.T) {
+		networkID := "1"
+		original := RequestChainMetadata{
+			Ethereum: &EthereumChainMetadata{
+				NetworkID: &networkID,
+				ABIMappings: map[string]ABIValue{
+					"0xContractAddr": {Value: `[{"name":"transfer"}]`},
+				},
+			},
+		}
+
+		b, err := json.Marshal(original)
+		require.NoError(t, err)
+
+		var m map[string]any
+		require.NoError(t, json.Unmarshal(b, &m))
+		require.Equal(t, "CHAIN_ETHEREUM", m["chain"])
+
+		var back RequestChainMetadata
+		require.NoError(t, json.Unmarshal(b, &back))
+		require.Equal(t, original, back)
+	})
+
+	t.Run("solana", func(t *testing.T) {
+		original := RequestChainMetadata{
+			Solana: &SolanaChainMetadata{
+				SimulatedTransactionResult: []byte("raw-simulate-transaction-bytes"),
+			},
+		}
+
+		b, err := json.Marshal(original)
+		require.NoError(t, err)
+
+		var m map[string]any
+		require.NoError(t, json.Unmarshal(b, &m))
+		require.Equal(t, "CHAIN_SOLANA", m["chain"])
+
+		var back RequestChainMetadata
+		require.NoError(t, json.Unmarshal(b, &back))
+		require.Equal(t, original, back)
+	})
+
+	t.Run("unmarshal rejects missing chain discriminator", func(t *testing.T) {
+		var m RequestChainMetadata
+		err := json.Unmarshal([]byte(`{"networkId":"1"}`), &m)
+		require.Error(t, err)
+	})
+
+	t.Run("unmarshal rejects unknown chain discriminator", func(t *testing.T) {
+		var m RequestChainMetadata
+		err := json.Unmarshal([]byte(`{"chain":"CHAIN_NEAR"}`), &m)
+		require.Error(t, err)
+	})
+
+	t.Run("marshal rejects both variants set", func(t *testing.T) {
+		m := RequestChainMetadata{
+			Ethereum: &EthereumChainMetadata{},
+			Solana:   &SolanaChainMetadata{},
+		}
+		_, err := json.Marshal(m)
+		require.Error(t, err)
+	})
+
+	t.Run("marshal rejects neither variant set", func(t *testing.T) {
+		_, err := json.Marshal(RequestChainMetadata{})
+		require.Error(t, err)
+	})
+}

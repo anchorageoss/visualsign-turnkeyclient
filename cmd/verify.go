@@ -76,7 +76,7 @@ func VerifyCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  "chain-metadata",
-				Usage: `Chain metadata JSON (e.g. {"ethereum":{"abiMappings":{"0xAddr":{"value":"[...]"}}}})`,
+				Usage: `Chain metadata JSON, tagged by "chain" (e.g. {"chain":"CHAIN_ETHEREUM","abiMappings":{"0xAddr":{"value":"[...]"}}})`,
 			},
 			&cli.BoolFlag{
 				Name:  "include-intermediate-output",

@@ -170,6 +170,8 @@ func (r *RequestChainMetadata) toBorshChainMetadata() (borshChainMetadata, error
 		return borshChainMetadata{Metadata: nil}, nil
 	}
 	switch {
+	case r.Ethereum != nil && r.Solana != nil:
+		return borshChainMetadata{}, fmt.Errorf("RequestChainMetadata: exactly one of Ethereum or Solana must be set, got both")
 	case r.Ethereum != nil:
 		return r.toBorshChainMetadataEthereum()
 	case r.Solana != nil:
@@ -214,7 +216,7 @@ func (r *RequestChainMetadata) toBorshChainMetadataEthereum() (borshChainMetadat
 func (r *RequestChainMetadata) toBorshChainMetadataSolana() (borshChainMetadata, error) {
 	sol := r.Solana
 	var rawJSON *string
-	if sol.SimulatedTransactionResult != nil {
+	if len(sol.SimulatedTransactionResult) > 0 {
 		encoded := base64.StdEncoding.EncodeToString(sol.SimulatedTransactionResult)
 		rawJSON = &encoded
 	}
