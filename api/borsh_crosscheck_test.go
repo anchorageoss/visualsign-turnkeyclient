@@ -101,3 +101,60 @@ func TestCrosscheckGoVsRustOnDeployedProto(t *testing.T) {
 		})
 	}
 }
+
+// TestCrosscheckGoVsRustSolana pins Go's Borsh encoding of Solana chain
+// metadata against real Rust borsh::to_vec output, the same way
+// TestCrosscheckGoVsRustOnDeployedProto does for Ethereum. Ground truth was
+// computed by running borsh::to_vec over generated::parser::ChainMetadata
+// (Solana variant) from visualsign-parser HEAD. Regenerate after any change
+// to SolanaMetadata's field layout.
+//
+// This client never populates NetworkID, Idl, or IdlMappings (see
+// borshSolanaMetadata), so only the reachable shapes are exercised here:
+// nothing set, and SimulatedTransactionResult set.
+func TestCrosscheckGoVsRustSolana(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		meta       *RequestChainMetadata
+		rustBytes  string
+		rustDigest string
+	}{
+		{
+			name: "nothing set",
+			meta: &RequestChainMetadata{
+				Solana: &SolanaChainMetadata{},
+			},
+			rustBytes:  "010100000000000000",
+			rustDigest: "46f8ec5a439c92e1df8299e1a4432a7ee172d8496b5e33e0a35a7b67163371b5",
+		},
+		{
+			name: "simulated_transaction_result only",
+			meta: &RequestChainMetadata{
+				Solana: &SolanaChainMetadata{
+					SimulatedTransactionResult: []byte(`{"foo":"bar"}`),
+				},
+			},
+			rustBytes:  "0101000000000000011400000065794a6d623238694f694a695958496966513d3d",
+			rustDigest: "a634909f1ca8a29434f6ae3b1869d27af08ec2376d3e473df3275430d457b2e5",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cm, err := tc.meta.toBorshChainMetadata()
+			if err != nil {
+				t.Fatal(err)
+			}
+			goBytes, err := borsh.Serialize(cm)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := sha256.Sum256(goBytes)
+			t.Logf("\n[%s]\n  go:   %s\n  rust: %s\n", tc.name, hex.EncodeToString(goBytes), tc.rustBytes)
+			if hex.EncodeToString(goBytes) != tc.rustBytes {
+				t.Errorf("byte mismatch")
+			}
+			if hex.EncodeToString(h[:]) != tc.rustDigest {
+				t.Errorf("digest mismatch: go=%s rust=%s", hex.EncodeToString(h[:]), tc.rustDigest)
+			}
+		})
+	}
+}
