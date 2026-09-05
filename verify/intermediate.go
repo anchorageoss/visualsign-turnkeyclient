@@ -120,10 +120,12 @@ type SolanaIntermediateOutput struct {
 }
 
 // SolanaIntermediateInstruction mirrors intermediate.rs SolanaIntermediateInstruction.
-// Field order matches the Rust struct exactly (Borsh is positional):
-// IdlParseError and RegisteredSource are appended after ParsedInstructionData
-// because they postdate the schema shipped on main -- a consumer built
-// against the prior shape simply stops reading before them.
+// Field order matches the Rust struct exactly (Borsh is positional): IdlParseError
+// and RegisteredSource are appended after ParsedInstructionData because they
+// postdate the schema shipped on main. Borsh has no field-skipping, so this is a
+// breaking layout change -- a consumer built against the prior shape hard-fails to
+// decode rather than truncating cleanly. SolanaIntermediateSchemaVersion is what
+// actually carries compatibility here: any field change must bump it.
 type SolanaIntermediateInstruction struct {
 	ProgramKey            string                           `json:"programKey"`
 	Accounts              []SolanaAccount                  `json:"accounts"`
