@@ -224,7 +224,7 @@ The manifest hash in the attestation's `UserData` field proves that:
 ### Decoding Process
 
 1. Extract `qosManifestEnvelopeB64` from API response's `bootProof` field
-2. Decode from base64. The first non-whitespace byte selects the format: `{` is a QOS JSON (v2) envelope, anything else is the legacy Borsh envelope. There is no fallback between formats: a malformed envelope of one format is never retried as the other.
+2. Decode from base64. The format is sniffed, not declared: if the first non-whitespace byte is `{` *and* the full payload parses as valid JSON, it's a QOS JSON (v2) envelope; otherwise it's the legacy Borsh envelope (this also covers malformed JSON that merely starts with `{`). There is no fallback between formats: a malformed envelope of one format is never retried as the other.
 3. Deserialize using the selected format's decoder to extract the manifest structure
 4. Compute the manifest hash and compare against attestation UserData
 

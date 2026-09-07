@@ -505,10 +505,15 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		ReserializedManifestHash: reserializedManifestHash,
 	}
 
-	// If we have a validly-decoded envelope, compute its hash too.
-	// base64.StdEncoding.DecodeString returns a non-nil partial slice even
-	// on error, so guard on the decode error, not on slice nilness, or a
-	// decode failure would leak a hash of garbage bytes here.
+	// Compute the envelope hash whenever the envelope base64 decoded, even if
+	// it then failed to deserialize as a manifest envelope: this hash is
+	// surfaced for debugging (cmd/verify.go prints it regardless of match
+	// outcome). base64.StdEncoding.DecodeString returns a non-nil partial
+	// slice even on error, so guard on the decode error, not on slice
+	// nilness, or a decode failure would leak a hash of garbage bytes here.
+	// The security-relevant "matches" check below additionally requires
+	// envelopeErr == nil, so this hash alone can never satisfy the binding
+	// unless the envelope actually decoded.
 	if response.QosManifestEnvelopeB64 != "" && envelopeBase64Err == nil {
 		serializationResult.EnvelopeHash = manifest.ComputeHash(envelopeBytes)
 	}
@@ -528,7 +533,14 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 			matches = reserializedMatches
 		} else {
 			rawManifestMatches := rawManifestHash != "" && rawManifestHash == userDataHex
-			envelopeMatches := serializationResult.EnvelopeHash != "" && serializationResult.EnvelopeHash == userDataHex
+			// envelopeErr == nil is required here (not just a hash match):
+			// otherwise a decode failure that still fell back to the
+			// raw-manifest path (decodedManifest/manifestBytes above) could
+			// have its binding satisfied by the hash of envelope bytes that
+			// were never verified to encode anything, even though the
+			// manifest actually processed and displayed came from the
+			// raw-manifest field instead.
+			envelopeMatches := envelopeErr == nil && serializationResult.EnvelopeHash != "" && serializationResult.EnvelopeHash == userDataHex
 			matches = rawManifestMatches || reserializedMatches || envelopeMatches
 		}
 
