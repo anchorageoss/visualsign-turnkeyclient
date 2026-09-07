@@ -122,8 +122,9 @@ const (
 )
 
 // DetectEnvelopeFormat sniffs data to select a decoder: a JSON manifest
-// envelope always begins with '{' and is valid JSON in full. A Borsh
-// envelope's leading bytes are a little-endian u32 length prefix, which can
+// envelope begins with '{' (after tolerating leading whitespace) and is
+// valid JSON in full. A Borsh envelope's leading bytes are a little-endian
+// u32 length prefix, which can
 // coincidentally equal '{' (0x7B) for some namespace-name lengths, so a
 // single leading byte is not enough to distinguish the formats; the rest of
 // the bytes must also parse as valid JSON. This is a parser-selection

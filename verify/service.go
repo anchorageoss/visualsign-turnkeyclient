@@ -455,7 +455,13 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 	}
 
 	mv := response.ManifestVersion
-	if !isJSONEnvelope && mv == manifest.ManifestVersionUnknown {
+	// Only fast-fail on a missing manifest version when we've confirmed the
+	// envelope isn't JSON (or there's no envelope at all): a Borsh-shaped
+	// (or absent) envelope genuinely can't be decoded without knowing V1 vs
+	// V2. When the envelope's base64 itself failed to decode, fall through
+	// instead, so the real base64 error (and the raw-manifest fallback
+	// below) aren't masked by this generic message.
+	if !isJSONEnvelope && envelopeBase64Err == nil && mv == manifest.ManifestVersionUnknown {
 		return fmt.Errorf("manifest version not set on API response (must be V1 or V2)")
 	}
 
