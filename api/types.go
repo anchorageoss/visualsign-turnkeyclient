@@ -28,7 +28,10 @@ package api
 
 import (
 	"crypto/ecdsa"
+	"encoding/json"
+	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 )
@@ -105,9 +108,111 @@ type EthereumChainMetadata struct {
 	ABIMappings map[string]ABIValue `json:"abiMappings,omitempty"`
 }
 
+// SolanaChainMetadata carries optional simulation-derived data for Solana
+// parse requests, letting the parser flag registered/unregistered status for
+// instructions that only exist at execution time and are never present in
+// the raw unsigned transaction the parser otherwise decodes.
+type SolanaChainMetadata struct {
+	// SimulatedTransactionResult is the raw simulateTransaction RPC response
+	// bytes (innerInstructions section), sent as-is with no backend-side
+	// decode/reshape. The parser runs this through the same static-decode
+	// path (parse_transaction_with_idls) it already uses for
+	// unsigned_payload.
+	SimulatedTransactionResult []byte `json:"simulatedTransactionResult,omitempty"`
+}
+
 // RequestChainMetadata is the chain_metadata field in the Turnkey parse request.
+//
+// The wire shape is internally tagged, not the {"ethereum":{...}} /
+// {"solana":{...}} shape this struct's field names might suggest: the parser
+// gateway's generated ChainMetadata is an untagged oneof, which is ambiguous
+// (e.g. a Solana payload with only networkId decodes as Ethereum), so the
+// gateway requires an explicit "chain" discriminator alongside the variant's
+// fields flattened into the same object. See MarshalJSON.
 type RequestChainMetadata struct {
-	Ethereum *EthereumChainMetadata `json:"ethereum,omitempty"`
+	Ethereum *EthereumChainMetadata `json:"-"`
+	Solana   *SolanaChainMetadata   `json:"-"`
+}
+
+// MarshalJSON flattens RequestChainMetadata into the gateway's internally-tagged
+// shape: {"chain": "CHAIN_SOLANA", ...SolanaChainMetadata fields...}. Exactly one
+// of Ethereum/Solana must be set.
+func (m RequestChainMetadata) MarshalJSON() ([]byte, error) {
+	switch {
+	case m.Ethereum != nil && m.Solana != nil:
+		return nil, fmt.Errorf("RequestChainMetadata: exactly one of Ethereum or Solana must be set, got both")
+	case m.Solana != nil:
+		return marshalTaggedChainMetadata("CHAIN_SOLANA", m.Solana)
+	case m.Ethereum != nil:
+		return marshalTaggedChainMetadata("CHAIN_ETHEREUM", m.Ethereum)
+	default:
+		return nil, fmt.Errorf("RequestChainMetadata: exactly one of Ethereum or Solana must be set")
+	}
+}
+
+// UnmarshalJSON parses the gateway's internally-tagged shape produced by
+// MarshalJSON: {"chain": "CHAIN_SOLANA", ...fields...}. This is the only wire
+// shape the gateway's ChainMetadataInput has ever accepted (including for
+// Ethereum, from the day chain_metadata support was added), so there is no
+// legacy untagged shape to also support.
+func (m *RequestChainMetadata) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("failed to decode chain metadata: %w", err)
+	}
+
+	rawChain, ok := fields["chain"]
+	if !ok {
+		return fmt.Errorf(`RequestChainMetadata: missing "chain" discriminator`)
+	}
+	var chain string
+	if err := json.Unmarshal(rawChain, &chain); err != nil {
+		return fmt.Errorf("failed to decode chain discriminator: %w", err)
+	}
+	delete(fields, "chain")
+	remaining, err := json.Marshal(fields)
+	if err != nil {
+		return fmt.Errorf("failed to re-encode chain metadata fields: %w", err)
+	}
+
+	switch {
+	case strings.HasPrefix(chain, "CHAIN_ETHEREUM"):
+		var eth EthereumChainMetadata
+		if err := json.Unmarshal(remaining, &eth); err != nil {
+			return fmt.Errorf("failed to decode ethereum chain metadata: %w", err)
+		}
+		m.Ethereum = &eth
+		m.Solana = nil
+	case strings.HasPrefix(chain, "CHAIN_SOLANA"):
+		var sol SolanaChainMetadata
+		if err := json.Unmarshal(remaining, &sol); err != nil {
+			return fmt.Errorf("failed to decode solana chain metadata: %w", err)
+		}
+		m.Solana = &sol
+		m.Ethereum = nil
+	default:
+		return fmt.Errorf("RequestChainMetadata: unsupported chain discriminator %q", chain)
+	}
+	return nil
+}
+
+// marshalTaggedChainMetadata marshals metadata to JSON and splices in a "chain"
+// key alongside its fields, matching the gateway's serde(tag = "chain") shape.
+func marshalTaggedChainMetadata(chain string, metadata any) ([]byte, error) {
+	fields, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal chain metadata: %w", err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(fields, &m); err != nil {
+		return nil, fmt.Errorf("failed to decode chain metadata fields: %w", err)
+	}
+	chainJSON, err := json.Marshal(chain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal chain discriminator: %w", err)
+	}
+	m["chain"] = chainJSON
+	return json.Marshal(m)
 }
 
 // TurnkeyStamp represents the stamp structure for API key authentication

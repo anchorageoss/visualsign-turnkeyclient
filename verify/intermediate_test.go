@@ -88,6 +88,79 @@ func TestComputeBorshParsedTransactionPayloadHash_IntermediateCrosscheck(t *test
 	require.NotEqual(t, s.ExpectedMessage, withoutIntermediate)
 }
 
+// TestDecodeSolanaIntermediateOutput_SimulatedInstructions guards against
+// SolanaSimulatedInstruction field-order drift vs the Rust struct. The
+// fixture is a real mainnet Kamino Lend leveraged deposit-and-borrow
+// transaction (15 inner CPIs into KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD,
+// decoded via the in-crate Kamino preset IDL merged into idl_records --
+// RegisteredSource::Preset, IdlSource "Preset").
+func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
+	var s solanaIntermediateSample
+	require.NoError(t, json.Unmarshal(testdata.SolanaIntermediateSimulatedSampleJSON, &s))
+	raw, err := base64.StdEncoding.DecodeString(s.IntermediateOutputB64)
+	require.NoError(t, err)
+	require.NotEmpty(t, raw)
+
+	out, err := DecodeSolanaIntermediateOutput(raw)
+	require.NoError(t, err)
+	require.Len(t, out.SimulatedInstructions, 15)
+
+	sim := out.SimulatedInstructions[0]
+	require.EqualValues(t, 2, sim.Index)
+	require.EqualValues(t, 2, sim.StackHeight)
+	require.Equal(t, "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD", sim.ProgramKey)
+	require.Equal(t, "fb0ae74c1b0b9f600000", sim.InstructionDataHex)
+	require.Equal(t, RegisteredSourcePreset, sim.RegisteredSource)
+	require.Len(t, sim.Accounts, 9)
+	require.Equal(t, "5HU4jpN65F7AGXYa6otSQ5yEYiroxcCk9DimpTroGvbF", sim.Accounts[0])
+	require.Nil(t, sim.IdlParseError)
+	require.NotNil(t, sim.ParsedInstructionData)
+	require.Equal(t, "initObligation", sim.ParsedInstructionData.InstructionName)
+	require.Equal(t, "Preset", sim.ParsedInstructionData.IdlSource)
+}
+
+// TestDecodeSolanaIntermediateOutput_SimulationError pins each
+// SolanaSimulationError discriminant end-to-end through Borsh
+// encode/decode/normalize, so a discriminant or normalizeOptionals bug (e.g.
+// misreading a real error as None, or vice versa) fails a test instead of
+// only ever being exercised by the untested success path.
+func TestDecodeSolanaIntermediateOutput_SimulationError(t *testing.T) {
+	variants := []SolanaSimulationError{
+		SolanaSimulationErrorInvalidBase64,
+		SolanaSimulationErrorInvalidJSON,
+		SolanaSimulationErrorSimulationFailed,
+		SolanaSimulationErrorCallerIdlRecordsUnusable,
+		SolanaSimulationErrorCompiledInstruction,
+		SolanaSimulationErrorInvalidInstructionData,
+	}
+	for _, v := range variants {
+		t.Run(v.String(), func(t *testing.T) {
+			v := v
+			in := SolanaIntermediateOutput{
+				SchemaVersion:   SolanaIntermediateSchemaVersion,
+				SimulationError: &v,
+			}
+			raw, err := borsh.Serialize(in)
+			require.NoError(t, err)
+
+			out, err := DecodeSolanaIntermediateOutput(raw)
+			require.NoError(t, err)
+			require.NotNil(t, out.SimulationError)
+			require.Equal(t, v, *out.SimulationError)
+		})
+	}
+
+	t.Run("nil stays nil", func(t *testing.T) {
+		in := SolanaIntermediateOutput{SchemaVersion: SolanaIntermediateSchemaVersion}
+		raw, err := borsh.Serialize(in)
+		require.NoError(t, err)
+
+		out, err := DecodeSolanaIntermediateOutput(raw)
+		require.NoError(t, err)
+		require.Nil(t, out.SimulationError)
+	})
+}
+
 // TestDecodeSolanaIntermediateOutput_SchemaGuard ensures an unexpected
 // schema_version is rejected rather than silently misdecoded.
 func TestDecodeSolanaIntermediateOutput_SchemaGuard(t *testing.T) {

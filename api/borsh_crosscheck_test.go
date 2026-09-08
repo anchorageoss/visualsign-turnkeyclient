@@ -101,3 +101,95 @@ func TestCrosscheckGoVsRustOnDeployedProto(t *testing.T) {
 		})
 	}
 }
+
+// TestCrosscheckGoVsRustSolana pins Go's Borsh encoding of Solana chain
+// metadata against real Rust borsh::to_vec output, the same way
+// TestCrosscheckGoVsRustOnDeployedProto does for Ethereum. Ground truth was
+// computed by running borsh::to_vec over generated::parser::ChainMetadata
+// (Solana variant) from visualsign-parser HEAD. Regenerate after any change
+// to SolanaMetadata's field layout.
+//
+// SolanaChainMetadata exposes no public field for NetworkID, Idl, or
+// IdlMappings yet, so the cases here cover the reachable shapes: nothing set,
+// and SimulatedTransactionResult set. TestCrosscheckGoVsRustSolanaIdlMappings
+// covers the IdlMappings encoding directly.
+func TestCrosscheckGoVsRustSolana(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		meta       *RequestChainMetadata
+		rustBytes  string
+		rustDigest string
+	}{
+		{
+			name: "nothing set",
+			meta: &RequestChainMetadata{
+				Solana: &SolanaChainMetadata{},
+			},
+			rustBytes:  "010100000000000000",
+			rustDigest: "46f8ec5a439c92e1df8299e1a4432a7ee172d8496b5e33e0a35a7b67163371b5",
+		},
+		{
+			name: "simulated_transaction_result only",
+			meta: &RequestChainMetadata{
+				Solana: &SolanaChainMetadata{
+					SimulatedTransactionResult: []byte(`{"foo":"bar"}`),
+				},
+			},
+			rustBytes:  "0101000000000000011400000065794a6d623238694f694a695958496966513d3d",
+			rustDigest: "a634909f1ca8a29434f6ae3b1869d27af08ec2376d3e473df3275430d457b2e5",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cm, err := tc.meta.toBorshChainMetadata()
+			if err != nil {
+				t.Fatal(err)
+			}
+			goBytes, err := borsh.Serialize(cm)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := sha256.Sum256(goBytes)
+			t.Logf("\n[%s]\n  go:   %s\n  rust: %s\n", tc.name, hex.EncodeToString(goBytes), tc.rustBytes)
+			if hex.EncodeToString(goBytes) != tc.rustBytes {
+				t.Errorf("byte mismatch")
+			}
+			if hex.EncodeToString(h[:]) != tc.rustDigest {
+				t.Errorf("digest mismatch: go=%s rust=%s", hex.EncodeToString(h[:]), tc.rustDigest)
+			}
+		})
+	}
+}
+
+// TestCrosscheckGoVsRustSolanaIdlMappings pins the idl_mappings encoding
+// against real Rust borsh::to_vec output. Rust declares idl_mappings as a
+// BTreeMap, so the ground truth encodes aaaProgram first even though the probe
+// inserted zzzProgram first; sortIdlMappings is what makes Go agree.
+func TestCrosscheckGoVsRustSolanaIdlMappings(t *testing.T) {
+	const rustBytes = "01010000020000000a00000061616150726f6772616d070000007b2261223a317d01010000000106000000302e33302e3000010b0000004a7570697465724c656e640a0000007a7a7a50726f6772616d070000007b227a223a317d0000000000"
+
+	idlType := int32(1) // SolanaIdlType::Anchor
+
+	// Out of ProgramID order, as a Go map range would yield.
+	entries := []borshIdlMappingEntry{
+		{ProgramID: "zzzProgram", Idl: borshIdl{Value: `{"z":1}`}},
+		{ProgramID: "aaaProgram", Idl: borshIdl{
+			Value:       `{"a":1}`,
+			IdlType:     &idlType,
+			IdlVersion:  strPtr("0.30.0"),
+			ProgramName: strPtr("JupiterLend"),
+		}},
+	}
+
+	goBytes, err := borsh.Serialize(borshChainMetadata{
+		Metadata: &borshMetadataEnum{
+			Enum:   solanaVariant,
+			Solana: borshSolanaMetadata{IdlMappings: sortIdlMappings(entries)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hex.EncodeToString(goBytes); got != rustBytes {
+		t.Errorf("byte mismatch:\n go:   %s\n rust: %s", got, rustBytes)
+	}
+}

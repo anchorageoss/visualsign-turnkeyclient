@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/near/borsh-go"
@@ -19,7 +20,80 @@ import (
 
 // SolanaIntermediateSchemaVersion is the schema_version this client understands.
 // It matches SOLANA_INTERMEDIATE_SCHEMA_VERSION in the parser's intermediate.rs.
-const SolanaIntermediateSchemaVersion uint16 = 1
+const SolanaIntermediateSchemaVersion uint16 = 2
+
+// RegisteredSource mirrors intermediate.rs RegisteredSource: where a program
+// ID was registered
+type RegisteredSource borsh.Enum
+
+const (
+	RegisteredSourceNative RegisteredSource = iota
+	RegisteredSourcePreset
+	RegisteredSourceThirdParty
+	RegisteredSourceCallerSupplied
+	RegisteredSourceUnregistered
+)
+
+func (s RegisteredSource) String() string {
+	switch s {
+	case RegisteredSourceNative:
+		return "Native"
+	case RegisteredSourcePreset:
+		return "Preset"
+	case RegisteredSourceThirdParty:
+		return "ThirdParty"
+	case RegisteredSourceCallerSupplied:
+		return "CallerSupplied"
+	case RegisteredSourceUnregistered:
+		return "Unregistered"
+	default:
+		return fmt.Sprintf("RegisteredSource(%d)", uint8(s))
+	}
+}
+
+func (s RegisteredSource) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
+
+// SolanaSimulationError mirrors intermediate.rs SolanaSimulationError: why a
+// caller-supplied simulateTransaction result could not be read. Unit variants;
+// the detail is logged parser-side rather than encoded.
+type SolanaSimulationError borsh.Enum
+
+const (
+	// Discriminants start at 1, matching the Rust enum's explicit values
+	// (#[borsh(use_discriminant = true)]). 0 is not a variant, so the zero value
+	// borsh-go produces for Option::None cannot be mistaken for a real error.
+	SolanaSimulationErrorInvalidBase64 SolanaSimulationError = iota + 1
+	SolanaSimulationErrorInvalidJSON
+	SolanaSimulationErrorSimulationFailed
+	SolanaSimulationErrorCallerIdlRecordsUnusable
+	SolanaSimulationErrorCompiledInstruction
+	SolanaSimulationErrorInvalidInstructionData
+)
+
+func (e SolanaSimulationError) String() string {
+	switch e {
+	case SolanaSimulationErrorInvalidBase64:
+		return "InvalidBase64"
+	case SolanaSimulationErrorInvalidJSON:
+		return "InvalidJson"
+	case SolanaSimulationErrorSimulationFailed:
+		return "SimulationFailed"
+	case SolanaSimulationErrorCallerIdlRecordsUnusable:
+		return "CallerIdlRecordsUnusable"
+	case SolanaSimulationErrorCompiledInstruction:
+		return "CompiledInstruction"
+	case SolanaSimulationErrorInvalidInstructionData:
+		return "InvalidInstructionData"
+	default:
+		return fmt.Sprintf("SolanaSimulationError(%d)", uint8(e))
+	}
+}
+
+func (e SolanaSimulationError) MarshalJSON() ([]byte, error) {
+	return json.Marshal(e.String())
+}
 
 // SolanaIntermediateOutput mirrors intermediate.rs SolanaIntermediateOutput.
 // schema_version is the first field so decoders can gate on it before trusting
@@ -33,15 +107,46 @@ type SolanaIntermediateOutput struct {
 	SplTransfers        []SplTransfer                   `json:"splTransfers"`
 	RecentBlockhash     string                          `json:"recentBlockhash"`
 	AddressTableLookups []SolanaAddressTableLookup      `json:"addressTableLookups"`
+	// SimulatedInstructions is a flat list of every call (top-level and
+	// inner/CPI alike) a caller-supplied transaction simulation observed.
+	// Independent of Instructions (static decode): no positional correlation,
+	// no index, no nesting.
+	SimulatedInstructions []SolanaSimulatedInstruction `json:"simulatedInstructions,omitempty"`
+	// SimulationError says why a supplied simulation could not be read. Nil
+	// means it was read or none was sent, so SimulatedInstructions is
+	// authoritative: empty there means the simulation had no inner
+	// instructions, not that we failed to read it.
+	SimulationError *SolanaSimulationError `json:"simulationError,omitempty"`
 }
 
 // SolanaIntermediateInstruction mirrors intermediate.rs SolanaIntermediateInstruction.
+// Field order matches the Rust struct exactly (Borsh is positional): IdlParseError
+// and RegisteredSource are appended after ParsedInstructionData because they
+// postdate the schema shipped on main. Borsh has no field-skipping, so this is a
+// breaking layout change -- a consumer built against the prior shape hard-fails to
+// decode rather than truncating cleanly. SolanaIntermediateSchemaVersion is what
+// actually carries compatibility here: any field change must bump it.
 type SolanaIntermediateInstruction struct {
 	ProgramKey            string                           `json:"programKey"`
 	Accounts              []SolanaAccount                  `json:"accounts"`
 	InstructionDataHex    string                           `json:"instructionDataHex"`
 	AddressTableLookups   []SolanaSingleAddressTableLookup `json:"addressTableLookups"`
 	ParsedInstructionData *SolanaParsedInstructionDataIo   `json:"parsedInstructionData,omitempty"`
+	IdlParseError         *SolanaIdlParseError             `json:"idlParseError,omitempty"`
+	RegisteredSource      RegisteredSource                 `json:"registeredSource"`
+}
+
+// SolanaSimulatedInstruction mirrors intermediate.rs SolanaSimulatedInstruction.
+type SolanaSimulatedInstruction struct {
+	Index                 uint32                            `json:"index"`
+	StackHeight           uint32                            `json:"stackHeight"`
+	ProgramKey            string                            `json:"programKey"`
+	Accounts              []string                          `json:"accounts"`
+	InstructionDataHex    string                            `json:"instructionDataHex"`
+	RegisteredSource      RegisteredSource                  `json:"registeredSource"`
+	ParsedInstructionData *SolanaParsedInstructionDataIo    `json:"parsedInstructionData,omitempty"`
+	SolanaRpcParsedData   *SolanaRpcParsedInstructionDataIo `json:"solanaRpcParsedData,omitempty"`
+	IdlParseError         *SolanaIdlParseError              `json:"idlParseError,omitempty"`
 }
 
 // SolanaAccount mirrors intermediate.rs SolanaAccount.
@@ -97,6 +202,62 @@ type SolanaParsedInstructionDataIo struct {
 	IdlHash             string            `json:"idlHash"`
 }
 
+// SolanaRpcParsedInstructionDataIo mirrors intermediate.rs
+// SolanaRpcParsedInstructionDataIo: the RPC's own jsonParsed decode of a
+// simulated instruction, distinct from the parser's own IDL-decoded
+// SolanaParsedInstructionDataIo.
+type SolanaRpcParsedInstructionDataIo struct {
+	Program    string `json:"program"`
+	ParsedJSON string `json:"parsedJson"`
+}
+
+// SolanaIdlDataOrAccountsError mirrors the payload shape shared by
+// intermediate.rs SolanaIdlParseError's DataParseError and AccountsMapError
+// struct variants.
+type SolanaIdlDataOrAccountsError struct {
+	InstructionName string `json:"instructionName"`
+	Error           string `json:"error"`
+}
+
+// SolanaIdlParseError mirrors intermediate.rs SolanaIdlParseError: why IDL
+// decode failed for an instruction, when it was attempted at all. Complex
+// Borsh enum -- exactly one of the fields below is populated, selected by
+// Enum. Field order after Enum must match the Rust variant declaration
+// order exactly (DataParseError, AccountsMapError, DiscriminatorNotFound,
+// IdlResolutionError).
+type SolanaIdlParseError struct {
+	Enum                  borsh.Enum `borsh_enum:"true"`
+	DataParseError        SolanaIdlDataOrAccountsError
+	AccountsMapError      SolanaIdlDataOrAccountsError
+	DiscriminatorNotFound string
+	IdlResolutionError    string
+}
+
+func (e *SolanaIdlParseError) MarshalJSON() ([]byte, error) {
+	switch e.Enum {
+	case 0:
+		return json.Marshal(map[string]any{"type": "DataParseError", "instructionName": e.DataParseError.InstructionName, "error": e.DataParseError.Error})
+	case 1:
+		return json.Marshal(map[string]any{"type": "AccountsMapError", "instructionName": e.AccountsMapError.InstructionName, "error": e.AccountsMapError.Error})
+	case 2:
+		return json.Marshal(map[string]any{"type": "DiscriminatorNotFound", "error": e.DiscriminatorNotFound})
+	case 3:
+		return json.Marshal(map[string]any{"type": "IdlResolutionError", "error": e.IdlResolutionError})
+	default:
+		return json.Marshal(map[string]any{"type": fmt.Sprintf("SolanaIdlParseError(%d)", uint8(e.Enum))})
+	}
+}
+
+// isZero reports whether this is the zero value borsh-go produces for an
+// Option::None: Enum 0 (DataParseError) with an empty payload. The parser
+// never emits a genuine DataParseError with both strings empty (error is
+// always a real, non-empty message from solana_parser), so this degenerate
+// shape unambiguously means None in practice, same tradeoff as the other
+// isZero methods below.
+func (e *SolanaIdlParseError) isZero() bool {
+	return e.Enum == 0 && e.DataParseError.InstructionName == "" && e.DataParseError.Error == ""
+}
+
 // DecodeSolanaIntermediateOutput decodes the raw Borsh bytes of the parser's
 // Solana intermediate output. It rejects any schema_version other than the one
 // this client mirrors, so a parser-side layout change surfaces as an explicit
@@ -125,10 +286,32 @@ func DecodeSolanaIntermediateOutput(b []byte) (*SolanaIntermediateOutput, error)
 // degenerate Some values for these fields (an IDL-matched instruction always
 // has a name; token_mint/decimals/fee are only Some when they carry real data).
 func normalizeOptionals(out *SolanaIntermediateOutput) {
+	// 0 is not a SolanaSimulationError variant, so it can only be a decoded None.
+	if out.SimulationError != nil && *out.SimulationError == 0 {
+		out.SimulationError = nil
+	}
 	for i := range out.Instructions {
 		p := out.Instructions[i].ParsedInstructionData
 		if p != nil && p.isZero() {
 			out.Instructions[i].ParsedInstructionData = nil
+		}
+		e := out.Instructions[i].IdlParseError
+		if e != nil && e.isZero() {
+			out.Instructions[i].IdlParseError = nil
+		}
+	}
+	for i := range out.SimulatedInstructions {
+		p := out.SimulatedInstructions[i].ParsedInstructionData
+		if p != nil && p.isZero() {
+			out.SimulatedInstructions[i].ParsedInstructionData = nil
+		}
+		r := out.SimulatedInstructions[i].SolanaRpcParsedData
+		if r != nil && r.isZero() {
+			out.SimulatedInstructions[i].SolanaRpcParsedData = nil
+		}
+		e := out.SimulatedInstructions[i].IdlParseError
+		if e != nil && e.isZero() {
+			out.SimulatedInstructions[i].IdlParseError = nil
 		}
 	}
 	for i := range out.SplTransfers {
@@ -144,6 +327,12 @@ func normalizeOptionals(out *SolanaIntermediateOutput) {
 func (p *SolanaParsedInstructionDataIo) isZero() bool {
 	return p.InstructionName == "" && p.Discriminator == "" && len(p.NamedAccounts) == 0 &&
 		p.ProgramCallArgsJSON == "" && p.IdlSource == "" && p.IdlHash == ""
+}
+
+// isZero reports whether every field of the RPC-parsed instruction data is the
+// zero value — the shape borsh-go produces for an Option::None.
+func (r *SolanaRpcParsedInstructionDataIo) isZero() bool {
+	return r.Program == "" && r.ParsedJSON == ""
 }
 
 func nilIfEmpty(s *string) *string {

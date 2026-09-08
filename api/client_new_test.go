@@ -142,6 +142,7 @@ func TestCreateSignablePayload(t *testing.T) {
 		require.Error(t, err)
 		require.Nil(t, result)
 		require.Contains(t, err.Error(), "non-OK status")
+		require.NotContains(t, err.Error(), "test-payload")
 	})
 
 	t.Run("invalid JSON response", func(t *testing.T) {
@@ -534,11 +535,10 @@ func TestCreateSignablePayload_ChainMetadata(t *testing.T) {
 		chainMeta, ok := reqField["chain_metadata"].(map[string]interface{})
 		require.True(t, ok, "expected 'chain_metadata' in request body")
 
-		eth, ok := chainMeta["ethereum"].(map[string]interface{})
-		require.True(t, ok, "expected 'ethereum' inside chain_metadata")
+		require.Equal(t, "CHAIN_ETHEREUM", chainMeta["chain"], "expected 'chain' discriminator inside chain_metadata")
 
-		abiMappings, ok := eth["abiMappings"].(map[string]interface{})
-		require.True(t, ok, "expected 'abiMappings' inside ethereum")
+		abiMappings, ok := chainMeta["abiMappings"].(map[string]interface{})
+		require.True(t, ok, "expected 'abiMappings' flattened inside chain_metadata")
 		require.Contains(t, abiMappings, "0xContractAddr")
 	})
 

@@ -68,6 +68,11 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 			return nil, fmt.Errorf("ChainMetadata.Ethereum requires an Ethereum chain, got %q", chain)
 		}
 	}
+	if req.ChainMetadata != nil && req.ChainMetadata.Solana != nil {
+		if !strings.HasPrefix(chain, "CHAIN_SOLANA") {
+			return nil, fmt.Errorf("ChainMetadata.Solana requires a Solana chain, got %q", chain)
+		}
+	}
 	apiReq := &api.CreateSignablePayloadRequest{
 		UnsignedPayload:           req.UnsignedPayload,
 		Chain:                     chain,
