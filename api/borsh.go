@@ -97,33 +97,27 @@ type borshKeyValue struct {
 	Value string
 }
 
-// borshSolanaMetadata mirrors parser.rs SolanaMetadata. Field order must match
-// the Rust struct declaration order (network_id, idl, idl_mappings,
-// simulated_transaction_result), which is what Borsh serializes in — NOT
-// proto tag order (network_id is tag 2, idl is tag 1). This client never
-// sends IDL data, so NetworkID and IdlMappings are always the zero value
-// (nil/empty) here; that still matches the Rust side's None/empty-map
-// encoding for those fields.
+// borshSolanaMetadata mirrors parser.rs SolanaMetadata in Rust declaration order.
 type borshSolanaMetadata struct {
 	NetworkID                  *string                // Option<String>
-	Idl                        *borshIdlPlaceholder   // Option<Idl> — always None; this client never sets it
-	IdlMappings                []borshIdlMappingEntry // HashMap<String, Idl> — always empty; this client never sets it
+	Idl                        *borshIdl              // Option<Idl>
+	IdlMappings                []borshIdlMappingEntry // BTreeMap<String, Idl> — must be sorted by ProgramID
 	SimulatedTransactionResult *string                // Option<String> — base64 raw simulateTransaction RPC response
 }
 
-// borshIdlPlaceholder mirrors parser.rs Idl closely enough to type-check the
-// always-nil Option<Idl> above. Never populated by this client; add real
-// fields here (mirroring Idl's declared field order) if this client starts
-// sending idl.
-type borshIdlPlaceholder struct {
-	Value string
+// borshIdl mirrors parser.rs Idl in Rust declaration order.
+type borshIdl struct {
+	Value       string
+	IdlType     *int32                  // Option<i32> — proto enum number (prost enumeration)
+	IdlVersion  *string                 // Option<String>
+	Signature   *borshSignatureMetadata // Option<SignatureMetadata>
+	ProgramName *string                 // Option<String>
 }
 
-// borshIdlMappingEntry would mirror one (program_id, Idl) entry of
-// idl_mappings if this client ever populated it. Never populated today.
+// borshIdlMappingEntry is one (program_id, Idl) pair in IdlMappings, sorted by ProgramID.
 type borshIdlMappingEntry struct {
 	ProgramID string
-	Idl       borshIdlPlaceholder
+	Idl       borshIdl
 }
 
 func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
@@ -224,8 +218,18 @@ func (r *RequestChainMetadata) toBorshChainMetadataSolana() (borshChainMetadata,
 		Metadata: &borshMetadataEnum{
 			Enum: solanaVariant,
 			Solana: borshSolanaMetadata{
+				// TODO: pass real entries once SolanaChainMetadata exposes IdlMappings.
+				IdlMappings:                sortIdlMappings(nil),
 				SimulatedTransactionResult: rawJSON,
 			},
 		},
 	}, nil
+}
+
+// sortIdlMappings sorts idl_mappings by ProgramID, as Rust's BTreeMap encoding requires.
+func sortIdlMappings(entries []borshIdlMappingEntry) []borshIdlMappingEntry {
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].ProgramID < entries[j].ProgramID
+	})
+	return entries
 }

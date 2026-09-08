@@ -109,9 +109,10 @@ func TestCrosscheckGoVsRustOnDeployedProto(t *testing.T) {
 // (Solana variant) from visualsign-parser HEAD. Regenerate after any change
 // to SolanaMetadata's field layout.
 //
-// This client never populates NetworkID, Idl, or IdlMappings (see
-// borshSolanaMetadata), so only the reachable shapes are exercised here:
-// nothing set, and SimulatedTransactionResult set.
+// SolanaChainMetadata exposes no public field for NetworkID, Idl, or
+// IdlMappings yet, so the cases here cover the reachable shapes: nothing set,
+// and SimulatedTransactionResult set. TestCrosscheckGoVsRustSolanaIdlMappings
+// covers the IdlMappings encoding directly.
 func TestCrosscheckGoVsRustSolana(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -156,5 +157,39 @@ func TestCrosscheckGoVsRustSolana(t *testing.T) {
 				t.Errorf("digest mismatch: go=%s rust=%s", hex.EncodeToString(h[:]), tc.rustDigest)
 			}
 		})
+	}
+}
+
+// TestCrosscheckGoVsRustSolanaIdlMappings pins the idl_mappings encoding
+// against real Rust borsh::to_vec output. Rust declares idl_mappings as a
+// BTreeMap, so the ground truth encodes aaaProgram first even though the probe
+// inserted zzzProgram first; sortIdlMappings is what makes Go agree.
+func TestCrosscheckGoVsRustSolanaIdlMappings(t *testing.T) {
+	const rustBytes = "01010000020000000a00000061616150726f6772616d070000007b2261223a317d01010000000106000000302e33302e3000010b0000004a7570697465724c656e640a0000007a7a7a50726f6772616d070000007b227a223a317d0000000000"
+
+	idlType := int32(1) // SolanaIdlType::Anchor
+
+	// Out of ProgramID order, as a Go map range would yield.
+	entries := []borshIdlMappingEntry{
+		{ProgramID: "zzzProgram", Idl: borshIdl{Value: `{"z":1}`}},
+		{ProgramID: "aaaProgram", Idl: borshIdl{
+			Value:       `{"a":1}`,
+			IdlType:     &idlType,
+			IdlVersion:  strPtr("0.30.0"),
+			ProgramName: strPtr("JupiterLend"),
+		}},
+	}
+
+	goBytes, err := borsh.Serialize(borshChainMetadata{
+		Metadata: &borshMetadataEnum{
+			Enum:   solanaVariant,
+			Solana: borshSolanaMetadata{IdlMappings: sortIdlMappings(entries)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hex.EncodeToString(goBytes); got != rustBytes {
+		t.Errorf("byte mismatch:\n go:   %s\n rust: %s", got, rustBytes)
 	}
 }
