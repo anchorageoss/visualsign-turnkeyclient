@@ -52,6 +52,22 @@ type strictObject struct {
 // the last value for a duplicate key, this is safe to use on a trust
 // boundary: a manifest envelope with a duplicate key is rejected outright
 // rather than silently picking one of the two values.
+//
+// REVIEW NOTE (confirmed follow-up, not fixed here): encoding/json's string
+// tokenizer is more lenient than qos_json/serde_json. Verified empirically:
+// an unpaired UTF-16 surrogate escape (e.g. "\ud800") and a raw invalid
+// UTF-8 byte sequence embedded directly in a JSON string both decode
+// successfully here, silently substituted with U+FFFD, where serde_json
+// would reject the input outright. Since the decoded Go string (not the
+// raw input) is what both this tool hashes (via re-canonicalization) and
+// displays, this doesn't break the "what you see is what's hashed"
+// property this package otherwise defends (see validateDisplaySafeString),
+// but it is a real interop/strictness gap: this client can accept and
+// verify an envelope that the actual QuorumOS reference implementation
+// would refuse to parse at all. Fixing it means validating strict UTF-8
+// and surrogate-pair correctness on the raw bytes before tokenizing, which
+// is more than a one-line change. Prasanna is tracking this as a follow-up
+// separately — not applied as part of this change.
 func decodeStrictJSON(data []byte) (any, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()

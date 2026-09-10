@@ -131,22 +131,17 @@ const (
 // discriminator only, not a trust boundary: each decoder still fails closed
 // independently, with no fallback to the other format on a decode failure.
 //
-// A buffer larger than maxJSONEnvelopeBytes that opens with '{' is routed to
-// EnvelopeFormatJSON without running the full json.Valid scan below: that
-// scan is O(len(data)), so paying for it before any size limit applies would
-// let an oversized '{'-prefixed buffer force a full linear scan on every
-// call. DecodeJSONManifestEnvelope enforces the same limit immediately and
-// fails closed, so the caller still gets a clear "too large" error rather
-// than a confusing Borsh-deserialization failure.
+// The full json.Valid scan below cannot be skipped based on size alone: a
+// legitimate Borsh envelope can coincidentally start with '{' (see above)
+// and legitimately exceed maxJSONEnvelopeBytes (e.g. a large AWS root
+// certificate or many quorum members), so routing an oversized
+// '{'-prefixed buffer straight to the JSON decoder without validating it
+// would misclassify and reject a valid Borsh envelope. (An earlier version
+// of this function tried exactly that "skip the scan when oversized"
+// shortcut as a cost optimization; it broke this case and was reverted.)
 func DetectEnvelopeFormat(data []byte) EnvelopeFormat {
 	trimmed := bytes.TrimLeft(data, " \t\n\r")
-	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return EnvelopeFormatBorsh
-	}
-	if len(trimmed) > maxJSONEnvelopeBytes {
-		return EnvelopeFormatJSON
-	}
-	if json.Valid(trimmed) {
+	if len(trimmed) > 0 && trimmed[0] == '{' && json.Valid(trimmed) {
 		return EnvelopeFormatJSON
 	}
 	return EnvelopeFormatBorsh

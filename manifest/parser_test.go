@@ -503,6 +503,38 @@ func TestDetectEnvelopeFormat(t *testing.T) {
 
 		assert.Equal(t, EnvelopeFormatBorsh, DetectEnvelopeFormat(envelopeBytes))
 	})
+
+	t.Run("oversized_borsh_data_starting_with_json_brace_byte_is_not_misrouted", func(t *testing.T) {
+		// Same coincidental-0x7B-prefix setup as above, but padded past
+		// maxJSONEnvelopeBytes (via a large AwsRootCertificate). A prior
+		// version of DetectEnvelopeFormat tried to skip the json.Valid scan
+		// for any buffer over that size, which misrouted this legitimate,
+		// merely-large Borsh envelope to the JSON decoder and rejected it
+		// as "too large". Confirm it's still detected and decoded as Borsh.
+		env := ManifestEnvelope{
+			Manifest: Manifest{
+				Namespace: Namespace{
+					Name:      strings.Repeat("n", 123),
+					Nonce:     1,
+					QuorumKey: []byte{0x02},
+				},
+				Pivot:       PivotConfig{Hash: Hash256{}, Restart: RestartPolicyNever},
+				ManifestSet: ManifestSet{Threshold: 1, Members: []QuorumMember{{Alias: "a", PubKey: []byte{0x02}}}},
+				ShareSet:    ShareSet{Threshold: 1, Members: []QuorumMember{{Alias: "a", PubKey: []byte{0x02}}}},
+				Enclave: NitroConfig{
+					Pcr0: []byte{0x00}, Pcr1: []byte{0x00}, Pcr2: []byte{0x00}, Pcr3: []byte{0x00},
+					AwsRootCertificate: make([]byte, maxJSONEnvelopeBytes+1),
+					QosCommit:          "c",
+				},
+			},
+		}
+		envelopeBytes, err := borsh.Serialize(env)
+		require.NoError(t, err)
+		require.Equal(t, byte('{'), envelopeBytes[0], "test setup: envelope must start with the 0x7B byte to exercise the regression")
+		require.Greater(t, len(envelopeBytes), maxJSONEnvelopeBytes, "test setup: envelope must exceed the JSON size limit to exercise the regression")
+
+		assert.Equal(t, EnvelopeFormatBorsh, DetectEnvelopeFormat(envelopeBytes))
+	})
 }
 
 func TestDecodeManifestEnvelopeFromBase64_JSONRouting(t *testing.T) {
