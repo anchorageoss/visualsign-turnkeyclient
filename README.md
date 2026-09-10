@@ -143,10 +143,11 @@ Decode and display a QoS manifest from a file or base64 string:
 
 # Decode a QOS JSON (v2) manifest envelope (Turnkey's newer TVC format) —
 # format is auto-detected from the decoded bytes, so no --api-version flag
-# is needed. Example uses a redacted/synthetic envelope; see "JSON (v2)
-# Manifest Envelopes" below for the schema.
+# is needed. testdata/qos_manifest_envelope_v2.json is a redacted/synthetic
+# fixture with this shape; see "JSON (v2) Manifest Envelopes" below for the
+# schema.
 ./bin/visualsign-turnkeyclient decode-manifest envelope \
-  --base64 "ewogICJtYW5pZmVzdCI6IHsKICAgICJ2ZXJzaW9uIjogInYyIiwgLi4u" \
+  --file testdata/qos_manifest_envelope_v2.json \
   --json | jq .
 ```
 
