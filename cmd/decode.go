@@ -194,7 +194,15 @@ func printQuorumSet(w io.Writer, label string, threshold uint32, memberCount int
 // projected via ManifestJSONV2.ToManifest(); the caller is responsible for
 // printing any JSON-only sections (Dns, Pivot.Env) that have no home on
 // Manifest.
-func printManifestText(w io.Writer, m manifest.Manifest) {
+//
+// hasDebugMode must be false for a V1-decoded Borsh manifest: PivotConfigV1
+// has no debug_mode field at all, so ManifestV1.ToManifest() leaves
+// Pivot.DebugMode at its Go zero value (false) rather than a decoded one.
+// Printing "DebugMode: false" for a V1 manifest would misreport a
+// zero-valued default as if it had actually been decoded from the wire. A
+// V2 Borsh manifest and a JSON v2 manifest both genuinely carry this field,
+// so both pass true.
+func printManifestText(w io.Writer, m manifest.Manifest, hasDebugMode bool) {
 	_, _ = fmt.Fprintf(w, "Namespace:\n")
 	_, _ = fmt.Fprintf(w, "  Name: %q\n", m.Namespace.Name)
 	_, _ = fmt.Fprintf(w, "  Nonce: %d\n", m.Namespace.Nonce)
@@ -218,7 +226,9 @@ func printManifestText(w io.Writer, m manifest.Manifest) {
 			_, _ = fmt.Fprintf(w, "    [%d] type=%s host=%q port=%d\n", i, bridgeType, host, port)
 		}
 	}
-	_, _ = fmt.Fprintf(w, "  DebugMode: %v\n", m.Pivot.DebugMode)
+	if hasDebugMode {
+		_, _ = fmt.Fprintf(w, "  DebugMode: %v\n", m.Pivot.DebugMode)
+	}
 
 	printQuorumSet(w, "Manifest Set", m.ManifestSet.Threshold, len(m.ManifestSet.Members))
 	printQuorumSet(w, "Share Set", m.ShareSet.Threshold, len(m.ShareSet.Members))
@@ -275,7 +285,7 @@ func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) err
 			env := jsonEnv.ToManifestEnvelope()
 
 			fmt.Fprintf(os.Stderr, "=== QoS JSON Manifest Decoded ===\n\n")
-			printManifestText(os.Stderr, env.Manifest)
+			printManifestText(os.Stderr, env.Manifest, true)
 
 			// Dns and Pivot.Env have no home on the Borsh-oriented Manifest
 			// type (see ManifestJSONV2.ToManifest), so they're printed here
@@ -327,7 +337,7 @@ func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) err
 	} else {
 		// Human-readable output
 		fmt.Fprintf(os.Stderr, "=== QoS Manifest Decoded ===\n\n")
-		printManifestText(os.Stderr, envelope.Manifest)
+		printManifestText(os.Stderr, envelope.Manifest, mv == manifest.V2)
 
 		printPCRs(os.Stderr, envelope.Manifest.Enclave.Pcr0, envelope.Manifest.Enclave.Pcr1, envelope.Manifest.Enclave.Pcr2, envelope.Manifest.Enclave.Pcr3)
 

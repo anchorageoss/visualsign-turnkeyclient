@@ -99,7 +99,7 @@ func TestPrintManifestTextJSONProjection(t *testing.T) {
 	env := jsonEnv.ToManifestEnvelope()
 
 	var buf bytes.Buffer
-	printManifestText(&buf, env.Manifest)
+	printManifestText(&buf, env.Manifest, true)
 	out := buf.String()
 
 	// Namespace
@@ -167,7 +167,7 @@ func TestPrintManifestTextBorshWireRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	var buf bytes.Buffer
-	printManifestText(&buf, *decoded)
+	printManifestText(&buf, *decoded, true)
 	out := buf.String()
 
 	require.Contains(t, out, `Name: "wire-round-trip-namespace"`)
@@ -180,4 +180,28 @@ func TestPrintManifestTextBorshWireRoundTrip(t *testing.T) {
 	require.Contains(t, out, "DebugMode: true")
 	require.Contains(t, out, "Manifest Set:\n  Threshold: 2\n  Members: 1\n")
 	require.Contains(t, out, "Share Set:\n  Threshold: 1\n  Members: 1\n")
+}
+
+// TestPrintManifestTextHasDebugModeGating verifies that printManifestText
+// omits the DebugMode line entirely when hasDebugMode is false — the fix
+// for a real bug a Copilot review caught: a V1-decoded Borsh manifest has
+// no debug_mode field on the wire (PivotConfigV1 doesn't carry one), so
+// ManifestV1.ToManifest() leaves Pivot.DebugMode at its Go zero value
+// (false). Printing "DebugMode: false" unconditionally, as the shared
+// formatter did right after the cmd/decode.go dedup, misreported that
+// zero-valued default as if it had actually been decoded from a V1
+// manifest that has no such field at all.
+func TestPrintManifestTextHasDebugModeGating(t *testing.T) {
+	m := manifest.Manifest{
+		Namespace: manifest.Namespace{Name: "v1-namespace"},
+		Pivot:     manifest.PivotConfig{Restart: manifest.RestartPolicyNever},
+	}
+
+	var v1Buf bytes.Buffer
+	printManifestText(&v1Buf, m, false)
+	require.NotContains(t, v1Buf.String(), "DebugMode")
+
+	var v2Buf bytes.Buffer
+	printManifestText(&v2Buf, m, true)
+	require.Contains(t, v2Buf.String(), "DebugMode: false")
 }
