@@ -31,6 +31,19 @@ import (
 // into a strictly-typed schema, as this package's manifest decoder does)
 // before treating canonical bytes as authoritative for anything
 // security-sensitive.
+//
+// REVIEW NOTE: code review flagged this as a candidate to lean on an
+// existing RFC 8785 (JCS) implementation (e.g. github.com/cyberphone/json-
+// canonicalization or github.com/gowebpki/jcs) instead of the hand-rolled
+// UTF-16 key sort (utf16Less) and string escaper (writeCanonicalString)
+// below. Neither library is a drop-in as-is: this function deliberately
+// diverges from strict RFC 8785 in the two ways documented above (base-10
+// integer strings instead of ECMA-262 number-to-string, and dropped null
+// members) to match qos_json/serde_json's actual output. Wrapping one of
+// those libraries with overrides for number and null handling could still
+// shrink the custom sort/escape logic while keeping a maintained reference
+// implementation for the rest — worth revisiting, but not swapped in here.
+// Prasanna is taking a first pass at this separately.
 func CanonicalizeJSON(data []byte) ([]byte, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()

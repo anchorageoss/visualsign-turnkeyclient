@@ -179,6 +179,51 @@ func printPCRs(w io.Writer, pcr0, pcr1, pcr2, pcr3 []byte) {
 	_, _ = fmt.Fprintf(w, "  PCR3: %s\n", hex.EncodeToString(pcr3))
 }
 
+// printQuorumSet writes a "Threshold"/"Members" summary shared by the
+// Manifest Set and Share Set sections of both text-output formats.
+func printQuorumSet(w io.Writer, label string, threshold uint32, memberCount int) {
+	_, _ = fmt.Fprintf(w, "\n%s:\n", label)
+	_, _ = fmt.Fprintf(w, "  Threshold: %d\n", threshold)
+	_, _ = fmt.Fprintf(w, "  Members: %d\n", memberCount)
+}
+
+// printManifestText writes the Namespace, Pivot Config, Manifest Set and
+// Share Set sections shared by the Borsh and JSON envelope text-output
+// formats. It is driven by this package's Borsh-oriented Manifest type, so
+// it works for both the native Borsh manifest and a JSON v2 manifest
+// projected via ManifestJSONV2.ToManifest(); the caller is responsible for
+// printing any JSON-only sections (Dns, Pivot.Env) that have no home on
+// Manifest.
+func printManifestText(w io.Writer, m manifest.Manifest) {
+	_, _ = fmt.Fprintf(w, "Namespace:\n")
+	_, _ = fmt.Fprintf(w, "  Name: %q\n", m.Namespace.Name)
+	_, _ = fmt.Fprintf(w, "  Nonce: %d\n", m.Namespace.Nonce)
+	_, _ = fmt.Fprintf(w, "  Quorum Key: %s\n", hex.EncodeToString(m.Namespace.QuorumKey))
+
+	_, _ = fmt.Fprintf(w, "\nPivot Config:\n")
+	_, _ = fmt.Fprintf(w, "  Binary Hash: %s\n", hex.EncodeToString(m.Pivot.Hash[:]))
+	_, _ = fmt.Fprintf(w, "  Restart Policy: %s\n", m.Pivot.Restart)
+	printIndexedQuoted(w, "    ", "  Args:\n", m.Pivot.Args)
+	if len(m.Pivot.BridgeConfig) > 0 {
+		_, _ = fmt.Fprintf(w, "  BridgeConfig:\n")
+		for i, bc := range m.Pivot.BridgeConfig {
+			var bridgeType, host string
+			var port uint16
+			switch bc.Enum {
+			case 0:
+				bridgeType, host, port = manifest.BridgeConfigTypeServer, bc.Server.Host, bc.Server.Port
+			case 1:
+				bridgeType, host, port = manifest.BridgeConfigTypeClient, bc.Client.Host, bc.Client.Port
+			}
+			_, _ = fmt.Fprintf(w, "    [%d] type=%s host=%q port=%d\n", i, bridgeType, host, port)
+		}
+	}
+	_, _ = fmt.Fprintf(w, "  DebugMode: %v\n", m.Pivot.DebugMode)
+
+	printQuorumSet(w, "Manifest Set", m.ManifestSet.Threshold, len(m.ManifestSet.Members))
+	printQuorumSet(w, "Share Set", m.ShareSet.Threshold, len(m.ShareSet.Members))
+}
+
 func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) error {
 	filePath := cmd.String("file")
 	b64 := cmd.String("base64")
@@ -227,29 +272,16 @@ func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) err
 			}
 			fmt.Println(string(jsonBytes))
 		} else {
-			fmt.Fprintf(os.Stderr, "=== QoS JSON Manifest Decoded ===\n\n")
-			fmt.Fprintf(os.Stderr, "Namespace:\n")
-			fmt.Fprintf(os.Stderr, "  Name: %q\n", jsonEnv.Manifest.Namespace.Name)
-			fmt.Fprintf(os.Stderr, "  Nonce: %d\n", jsonEnv.Manifest.Namespace.Nonce)
-			fmt.Fprintf(os.Stderr, "  Quorum Key: %s\n", hex.EncodeToString(jsonEnv.Manifest.Namespace.QuorumKey))
+			env := jsonEnv.ToManifestEnvelope()
 
-			fmt.Fprintf(os.Stderr, "\nPivot Config:\n")
-			fmt.Fprintf(os.Stderr, "  Binary Hash: %x\n", []byte(jsonEnv.Manifest.Pivot.Hash))
-			fmt.Fprintf(os.Stderr, "  Restart Policy: %s\n", jsonEnv.Manifest.Pivot.Restart)
-			printIndexedQuoted(os.Stderr, "    ", "  Args:\n", jsonEnv.Manifest.Pivot.Args)
-			if len(jsonEnv.Manifest.Pivot.BridgeConfig) > 0 {
-				fmt.Fprintf(os.Stderr, "  BridgeConfig:\n")
-				for i, bc := range jsonEnv.Manifest.Pivot.BridgeConfig {
-					host := ""
-					if bc.Host != nil {
-						host = *bc.Host
-					}
-					fmt.Fprintf(os.Stderr, "    [%d] type=%s host=%q port=%d\n", i, bc.Type, host, bc.Port)
-				}
-			}
-			fmt.Fprintf(os.Stderr, "  DebugMode: %v\n", jsonEnv.Manifest.Pivot.DebugMode)
+			fmt.Fprintf(os.Stderr, "=== QoS JSON Manifest Decoded ===\n\n")
+			printManifestText(os.Stderr, env.Manifest)
+
+			// Dns and Pivot.Env have no home on the Borsh-oriented Manifest
+			// type (see ManifestJSONV2.ToManifest), so they're printed here
+			// from the original JSON envelope rather than via printManifestText.
 			if len(jsonEnv.Manifest.Pivot.Env) > 0 {
-				fmt.Fprintf(os.Stderr, "  Env:\n")
+				fmt.Fprintf(os.Stderr, "\nEnv:\n")
 				names := make([]string, 0, len(jsonEnv.Manifest.Pivot.Env))
 				for name := range jsonEnv.Manifest.Pivot.Env {
 					names = append(names, name)
@@ -257,24 +289,15 @@ func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) err
 				sort.Strings(names)
 				for _, name := range names {
 					if value := jsonEnv.Manifest.Pivot.Env[name]; value.Plain != nil {
-						fmt.Fprintf(os.Stderr, "    %q=%q\n", name, value.Plain.Value)
+						fmt.Fprintf(os.Stderr, "  %q=%q\n", name, value.Plain.Value)
 					}
 				}
 			}
-
 			if jsonEnv.Manifest.Dns != nil {
 				printIndexedQuoted(os.Stderr, "  ", "\nDNS Resolvers:\n", jsonEnv.Manifest.Dns.Resolvers)
 			}
 
-			fmt.Fprintf(os.Stderr, "\nManifest Set:\n")
-			fmt.Fprintf(os.Stderr, "  Threshold: %d\n", jsonEnv.Manifest.ManifestSet.Threshold)
-			fmt.Fprintf(os.Stderr, "  Members: %d\n", len(jsonEnv.Manifest.ManifestSet.Members))
-
-			fmt.Fprintf(os.Stderr, "\nShare Set:\n")
-			fmt.Fprintf(os.Stderr, "  Threshold: %d\n", jsonEnv.Manifest.ShareSet.Threshold)
-			fmt.Fprintf(os.Stderr, "  Members: %d\n", len(jsonEnv.Manifest.ShareSet.Members))
-
-			printPCRs(os.Stderr, jsonEnv.Manifest.Enclave.Pcr0, jsonEnv.Manifest.Enclave.Pcr1, jsonEnv.Manifest.Enclave.Pcr2, jsonEnv.Manifest.Enclave.Pcr3)
+			printPCRs(os.Stderr, env.Manifest.Enclave.Pcr0, env.Manifest.Enclave.Pcr1, env.Manifest.Enclave.Pcr2, env.Manifest.Enclave.Pcr3)
 
 			printHashesAndApprovals(manifestHash, envelopeHash, len(jsonEnv.ManifestSetApprovals), len(jsonEnv.ShareSetApprovals))
 		}
@@ -304,17 +327,7 @@ func runDecodeManifestEnvelopeCommand(ctx context.Context, cmd *cli.Command) err
 	} else {
 		// Human-readable output
 		fmt.Fprintf(os.Stderr, "=== QoS Manifest Decoded ===\n\n")
-		fmt.Fprintf(os.Stderr, "Namespace:\n")
-		fmt.Fprintf(os.Stderr, "  Name: %s\n", envelope.Manifest.Namespace.Name)
-		fmt.Fprintf(os.Stderr, "  Nonce: %d\n", envelope.Manifest.Namespace.Nonce)
-
-		fmt.Fprintf(os.Stderr, "\nPivot Config:\n")
-		fmt.Fprintf(os.Stderr, "  Binary Hash: %s\n", fmt.Sprintf("%x", envelope.Manifest.Pivot.Hash[:]))
-		fmt.Fprintf(os.Stderr, "  Restart Policy: %d\n", envelope.Manifest.Pivot.Restart)
-
-		fmt.Fprintf(os.Stderr, "\nManifest Set:\n")
-		fmt.Fprintf(os.Stderr, "  Threshold: %d\n", envelope.Manifest.ManifestSet.Threshold)
-		fmt.Fprintf(os.Stderr, "  Members: %d\n", len(envelope.Manifest.ManifestSet.Members))
+		printManifestText(os.Stderr, envelope.Manifest)
 
 		printPCRs(os.Stderr, envelope.Manifest.Enclave.Pcr0, envelope.Manifest.Enclave.Pcr1, envelope.Manifest.Enclave.Pcr2, envelope.Manifest.Enclave.Pcr3)
 

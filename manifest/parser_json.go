@@ -21,6 +21,19 @@ const maxJSONEnvelopeBytes = 4 << 20 // 4 MiB
 // headroom.
 const maxJSONNestingDepth = 64
 
+// REVIEW NOTE: this hand-rolled decoding layer (decodeStrictJSON below, plus
+// checkAllowedFields/allowedFieldSet and the decodeXxxJSON/decodeXxxField
+// helpers later in this file) largely reimplements what encoding/json's
+// Unmarshal + Decoder.DisallowUnknownFields() already does against the
+// tagged structs in types_json.go. The one gap stdlib can't cover is
+// duplicate-key rejection (see decodeStrictJSON's doc comment) — that part
+// alone justifies a custom pass. Flagged by code review as worth shrinking
+// to: json.Unmarshal with DisallowUnknownFields() into the tagged structs,
+// a small post-unmarshal required-field/enum/hex validator, and a
+// standalone duplicate-key token-scan pre-pass, so the wire schema has one
+// source of truth instead of two (struct tags vs. the allowedFieldSet /
+// requiredField string literals below). Prasanna is taking a first pass at
+// this restructuring separately — not applied as part of this change.
 type strictObject struct {
 	keys   []string
 	values map[string]any
