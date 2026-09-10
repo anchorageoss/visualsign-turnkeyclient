@@ -12,6 +12,7 @@ import (
 func validEnvelopeJSON() string {
 	hash := strings.Repeat("ab", 32)
 	pubKey := strings.Repeat("02", 33)
+	pcr := strings.Repeat("00", nitroPCRLen)
 	return `{
 		"manifest": {
 			"version": "v2",
@@ -26,7 +27,7 @@ func validEnvelopeJSON() string {
 			"manifestSet": {"threshold": 1, "members": [{"alias": "a", "pubKey": "` + pubKey + `"}]},
 			"shareSet": {"threshold": 1, "members": [{"alias": "a", "pubKey": "` + pubKey + `"}]},
 			"enclave": {
-				"pcr0": "00", "pcr1": "00", "pcr2": "00", "pcr3": "00",
+				"pcr0": "` + pcr + `", "pcr1": "` + pcr + `", "pcr2": "` + pcr + `", "pcr3": "` + pcr + `",
 				"awsRootCertificate": "00", "qosCommit": "c"
 			}
 		},

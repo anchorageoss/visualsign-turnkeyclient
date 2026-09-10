@@ -21,6 +21,12 @@ const maxJSONEnvelopeBytes = 4 << 20 // 4 MiB
 // headroom.
 const maxJSONNestingDepth = 64
 
+// nitroPCRLen is the fixed byte length of an AWS Nitro Enclave PCR value
+// (a SHA-384 digest). Unlike quorumKey/pubKey/signature, whose byte length
+// varies with the key/signature algorithm in use, every Nitro PCR is always
+// this length, so it's safe to enforce as a fixed-size field.
+const nitroPCRLen = 48
+
 // REVIEW NOTE: this hand-rolled decoding layer (decodeStrictJSON below, plus
 // checkAllowedFields/allowedFieldSet and the decodeXxxJSON/decodeXxxField
 // helpers later in this file) largely reimplements what encoding/json's
@@ -508,18 +514,22 @@ func decodeNitroConfigJSON(v any, context string) (NitroConfigJSON, error) {
 	for _, field := range []struct {
 		name string
 		dst  *HexBytes
+		// expectedLen is 48 for PCRs (AWS Nitro PCRs are always SHA-384
+		// digests) and 0 (any length) for awsRootCertificate, which is a
+		// variable-length ASN.1 DER certificate.
+		expectedLen int
 	}{
-		{"pcr0", &cfg.Pcr0},
-		{"pcr1", &cfg.Pcr1},
-		{"pcr2", &cfg.Pcr2},
-		{"pcr3", &cfg.Pcr3},
-		{"awsRootCertificate", &cfg.AwsRootCertificate},
+		{"pcr0", &cfg.Pcr0, nitroPCRLen},
+		{"pcr1", &cfg.Pcr1, nitroPCRLen},
+		{"pcr2", &cfg.Pcr2, nitroPCRLen},
+		{"pcr3", &cfg.Pcr3, nitroPCRLen},
+		{"awsRootCertificate", &cfg.AwsRootCertificate, 0},
 	} {
 		fv, err := requiredField(obj, field.name, context)
 		if err != nil {
 			return NitroConfigJSON{}, err
 		}
-		b, err := decodeHexField(fv, 0, context+"."+field.name)
+		b, err := decodeHexField(fv, field.expectedLen, context+"."+field.name)
 		if err != nil {
 			return NitroConfigJSON{}, err
 		}
