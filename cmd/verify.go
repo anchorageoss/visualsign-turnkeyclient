@@ -14,6 +14,26 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// matchedHashLabel returns the human-readable name of the hash that
+// satisfied the UserData binding, keyed by ManifestSerializationResult's
+// MatchedVia. A JSON envelope never matches via "raw" (see
+// processManifest's isJSONEnvelope gating), so this must not hard-code a
+// single message for every match kind.
+func matchedHashLabel(matchedVia string) string {
+	switch matchedVia {
+	case "raw":
+		return "Raw manifest hash"
+	case "reserialized":
+		return "Reserialized manifest hash"
+	case "canonical":
+		return "Canonical JSON manifest hash"
+	case "envelope":
+		return "Envelope hash"
+	default:
+		return "Manifest hash"
+	}
+}
+
 // VerifyCommand creates the verify command
 func VerifyCommand() *cli.Command {
 	return &cli.Command{
@@ -215,7 +235,7 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 			fmt.Fprintf(os.Stderr, "✓ Manifest decoded successfully\n")
 		}
 		if result.ManifestReserialization.Matches {
-			fmt.Fprintf(os.Stderr, "✓ Raw manifest hash matches UserData in attestation\n")
+			fmt.Fprintf(os.Stderr, "✓ %s matches UserData in attestation\n", matchedHashLabel(result.ManifestReserialization.MatchedVia))
 		} else if result.ManifestReserialization.ReserializationNeeded {
 			if result.ManifestReserialization.Error != "" {
 				fmt.Fprintf(os.Stderr, "⚠️  WARNING: Manifest parsing error\n")

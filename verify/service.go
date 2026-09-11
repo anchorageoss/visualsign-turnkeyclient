@@ -449,9 +449,39 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		}
 	}
 
-	// Validate manifest version before attempting decode
+	var envelopeBytes []byte
+	var envelopeBase64Err error
+	isJSONEnvelope := false
+	if response.QosManifestEnvelopeB64 != "" {
+		envelopeBytes, envelopeBase64Err = base64.StdEncoding.DecodeString(response.QosManifestEnvelopeB64)
+		if envelopeBase64Err == nil {
+			isJSONEnvelope = manifest.DetectEnvelopeFormat(envelopeBytes) == manifest.EnvelopeFormatJSON
+		}
+	}
+
+	// Compute the envelope hash whenever the envelope base64 decoded, even if
+	// it then fails to deserialize as a manifest envelope (or the raw
+	// manifest fallback below also fails): this hash is surfaced for
+	// debugging (cmd/verify.go prints it regardless of match outcome), even
+	// on a total decode failure. base64.StdEncoding.DecodeString returns a
+	// non-nil partial slice even on error, so guard on the decode error, not
+	// on slice nilness, or a decode failure would leak a hash of garbage
+	// bytes here. The security-relevant "matches" check further below
+	// additionally requires envelopeErr == nil, so this hash alone can
+	// never satisfy the binding unless the envelope actually decoded.
+	var envelopeHash string
+	if response.QosManifestEnvelopeB64 != "" && envelopeBase64Err == nil {
+		envelopeHash = manifest.ComputeHash(envelopeBytes)
+	}
+
 	mv := response.ManifestVersion
-	if mv == manifest.ManifestVersionUnknown {
+	// Only fast-fail on a missing manifest version when we've confirmed the
+	// envelope isn't JSON (or there's no envelope at all): a Borsh-shaped
+	// (or absent) envelope genuinely can't be decoded without knowing V1 vs
+	// V2. When the envelope's base64 itself failed to decode, fall through
+	// instead, so the real base64 error (and the raw-manifest fallback
+	// below) aren't masked by this generic message.
+	if !isJSONEnvelope && envelopeBase64Err == nil && mv == manifest.ManifestVersionUnknown {
 		return fmt.Errorf("manifest version not set on API response (must be V1 or V2)")
 	}
 
@@ -461,10 +491,20 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 	var err error
 	var envelopeErr error
 	if response.QosManifestEnvelopeB64 != "" {
-		_, decodedManifest, manifestBytes, _, envelopeErr = manifest.DecodeManifestEnvelopeFromBase64(response.QosManifestEnvelopeB64, mv)
+		if envelopeBase64Err != nil {
+			envelopeErr = fmt.Errorf("failed to decode base64: %w", envelopeBase64Err)
+		} else {
+			_, decodedManifest, manifestBytes, _, envelopeErr = manifest.DecodeManifestEnvelopeFromBytes(envelopeBytes, mv)
+		}
 		err = envelopeErr
 	}
-	if (err != nil || decodedManifest == nil) && response.QosManifestB64 != "" {
+	// Only fall back to the raw-manifest path when the envelope itself was
+	// not JSON-shaped (or absent): a JSON envelope that fails strict
+	// decoding must fail with that decode error, never be silently retried
+	// against a Borsh-decoded raw manifest, which would apply the
+	// JSON-only canonical-hash match rule below to bytes that were never
+	// actually JSON.
+	if !isJSONEnvelope && (err != nil || decodedManifest == nil) && response.QosManifestB64 != "" {
 		decodedManifest, manifestBytes, err = manifest.DecodeRawManifestFromBase64(response.QosManifestB64, mv)
 		if err != nil && envelopeErr != nil {
 			err = fmt.Errorf("envelope decode failed: %v; raw manifest decode failed: %w", envelopeErr, err)
@@ -475,6 +515,7 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		result.ManifestReserialization.RawManifestHash = rawManifestHash
 		result.ManifestReserialization.RawManifestB64 = response.QosManifestB64
 		result.ManifestReserialization.EnvelopeB64 = response.QosManifestEnvelopeB64
+		result.ManifestReserialization.EnvelopeHash = envelopeHash
 		if len(userData) > 0 {
 			result.ManifestReserialization.UserDataHash = hex.EncodeToString(userData)
 		}
@@ -489,14 +530,7 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 	serializationResult := ManifestSerializationResult{
 		RawManifestHash:          rawManifestHash,
 		ReserializedManifestHash: reserializedManifestHash,
-	}
-
-	// If we have the envelope version, compute its hash too
-	if response.QosManifestEnvelopeB64 != "" {
-		envelopeBytes, err := base64.StdEncoding.DecodeString(response.QosManifestEnvelopeB64)
-		if err == nil {
-			serializationResult.EnvelopeHash = manifest.ComputeHash(envelopeBytes)
-		}
+		EnvelopeHash:             envelopeHash,
 	}
 
 	// Compare against UserData
@@ -504,13 +538,42 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		userDataHex := hex.EncodeToString(userData)
 		serializationResult.UserDataHash = userDataHex
 
-		// Check if any hash representation matches UserData
-		rawManifestMatches := rawManifestHash != "" && rawManifestHash == userDataHex
+		// A JSON manifest binds exclusively to its QOS canonical JSON
+		// (reserialized) hash: accepting a raw or envelope hash match here
+		// would let a non-canonical encoding of the same manifest satisfy the
+		// binding, defeating the point of canonicalizing before hashing.
 		reserializedMatches := reserializedManifestHash == userDataHex
-		envelopeMatches := serializationResult.EnvelopeHash != "" && serializationResult.EnvelopeHash == userDataHex
+		var matches bool
+		var matchedVia string
+		if isJSONEnvelope {
+			matches = reserializedMatches
+			if matches {
+				matchedVia = "canonical"
+			}
+		} else {
+			rawManifestMatches := rawManifestHash != "" && rawManifestHash == userDataHex
+			// envelopeErr == nil is required here (not just a hash match):
+			// otherwise a decode failure that still fell back to the
+			// raw-manifest path (decodedManifest/manifestBytes above) could
+			// have its binding satisfied by the hash of envelope bytes that
+			// were never verified to encode anything, even though the
+			// manifest actually processed and displayed came from the
+			// raw-manifest field instead.
+			envelopeMatches := envelopeErr == nil && serializationResult.EnvelopeHash != "" && serializationResult.EnvelopeHash == userDataHex
+			matches = rawManifestMatches || reserializedMatches || envelopeMatches
+			switch {
+			case rawManifestMatches:
+				matchedVia = "raw"
+			case reserializedMatches:
+				matchedVia = "reserialized"
+			case envelopeMatches:
+				matchedVia = "envelope"
+			}
+		}
 
-		if rawManifestMatches || reserializedMatches || envelopeMatches {
+		if matches {
 			serializationResult.Matches = true
+			serializationResult.MatchedVia = matchedVia
 		} else {
 			serializationResult.ReserializationNeeded = true
 			mismatchMsg := fmt.Sprintf(

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/testdata"
@@ -133,6 +134,41 @@ func TestDecodeRawManifestFromBase64(t *testing.T) {
 	t.Run("empty base64", func(t *testing.T) {
 		_, _, err := DecodeRawManifestFromBase64("", V2)
 		assert.Error(t, err)
+	})
+}
+
+// TestDecodeManifestFromBase64_JSONEnvelope verifies that the
+// DecodeManifestFromBase64/DecodeManifestFromFile compatibility helpers
+// route through the same format-sniffing as DecodeManifestEnvelopeFromBase64
+// et al. Before this fix, both called decodeEnvelope (Borsh-only) directly,
+// so a caller using these documented public functions would reject every
+// valid JSON v2 envelope as a Borsh deserialize failure, even though
+// DecodeManifestEnvelopeFromBase64 supported JSON just fine.
+func TestDecodeManifestFromBase64_JSONEnvelope(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString(testdata.QosManifestEnvelopeV2JSON)
+
+	t.Run("DecodeManifestFromBase64", func(t *testing.T) {
+		m, manifestBytes, envelopeBytes, err := DecodeManifestFromBase64(b64, V2)
+		require.NoError(t, err)
+		require.NotNil(t, m)
+		assert.Equal(t, "synthetic-turnkey-namespace", m.Namespace.Name)
+		assert.Equal(t, testdata.QosManifestEnvelopeV2JSON, envelopeBytes)
+		expected := strings.TrimSuffix(string(testdata.QosManifestEnvelopeV2CanonicalJSON), "\n")
+		assert.Equal(t, expected, string(manifestBytes))
+	})
+
+	t.Run("DecodeManifestFromFile", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		p := filepath.Join(tmpDir, "envelope.json")
+		require.NoError(t, os.WriteFile(p, testdata.QosManifestEnvelopeV2JSON, 0644))
+
+		m, manifestBytes, envelopeBytes, err := DecodeManifestFromFile(p, V2)
+		require.NoError(t, err)
+		require.NotNil(t, m)
+		assert.Equal(t, "synthetic-turnkey-namespace", m.Namespace.Name)
+		assert.Equal(t, testdata.QosManifestEnvelopeV2JSON, envelopeBytes)
+		expected := strings.TrimSuffix(string(testdata.QosManifestEnvelopeV2CanonicalJSON), "\n")
+		assert.Equal(t, expected, string(manifestBytes))
 	})
 }
 
@@ -438,4 +474,118 @@ func TestManifestEnvelopeV1ToManifestEnvelope(t *testing.T) {
 	require.Len(t, env.ManifestSetApprovals, 2)
 	require.Len(t, env.ShareSetApprovals, 1)
 	require.Equal(t, "a1", env.ManifestSetApprovals[0].Member.Alias)
+}
+
+func TestDetectEnvelopeFormat(t *testing.T) {
+	t.Run("leading_brace_is_json", func(t *testing.T) {
+		assert.Equal(t, EnvelopeFormatJSON, DetectEnvelopeFormat([]byte(`{"a":1}`)))
+	})
+
+	t.Run("leading_whitespace_is_tolerated", func(t *testing.T) {
+		assert.Equal(t, EnvelopeFormatJSON, DetectEnvelopeFormat([]byte("  \n\t {}")))
+	})
+
+	t.Run("non_brace_is_borsh", func(t *testing.T) {
+		assert.Equal(t, EnvelopeFormatBorsh, DetectEnvelopeFormat([]byte{0x01, 0x02, 0x03}))
+	})
+
+	t.Run("empty_input_is_borsh", func(t *testing.T) {
+		assert.Equal(t, EnvelopeFormatBorsh, DetectEnvelopeFormat(nil))
+		assert.Equal(t, EnvelopeFormatBorsh, DetectEnvelopeFormat([]byte{}))
+	})
+
+	t.Run("whitespace_only_is_borsh", func(t *testing.T) {
+		assert.Equal(t, EnvelopeFormatBorsh, DetectEnvelopeFormat([]byte("   \n\t ")))
+	})
+
+	t.Run("no_fallback", func(t *testing.T) {
+		// `{}` is syntactically valid JSON, so it is detected and decoded as
+		// a JSON envelope; the decode fails on a missing required field, and
+		// that JSON-specific failure must be returned as-is, never retried
+		// as a Borsh decode.
+		_, _, _, _, err := DecodeManifestEnvelopeFromBase64(base64.StdEncoding.EncodeToString([]byte(`{}`)), V2)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required field")
+
+		_, _, _, _, err = DecodeManifestEnvelopeFromBase64(base64.StdEncoding.EncodeToString([]byte{0xFF, 0xFF, 0xFF}), V2)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "deserialize v2 manifest envelope")
+	})
+
+	t.Run("borsh_data_starting_with_json_brace_byte_is_not_misrouted", func(t *testing.T) {
+		// A Borsh ManifestEnvelope's wire bytes begin with the little-endian
+		// u32 length prefix of Namespace.Name. A namespace name of length
+		// 123 (0x7B) makes the first serialized byte '{', which used to be
+		// enough on its own to misroute this legitimate Borsh envelope to
+		// the JSON decoder. Construct such an envelope and confirm it is
+		// still detected and decoded as Borsh.
+		env := ManifestEnvelope{
+			Manifest: Manifest{
+				Namespace: Namespace{
+					Name:      strings.Repeat("n", 123),
+					Nonce:     1,
+					QuorumKey: []byte{0x02},
+				},
+				Pivot:       PivotConfig{Hash: Hash256{}, Restart: RestartPolicyNever},
+				ManifestSet: ManifestSet{Threshold: 1, Members: []QuorumMember{{Alias: "a", PubKey: []byte{0x02}}}},
+				ShareSet:    ShareSet{Threshold: 1, Members: []QuorumMember{{Alias: "a", PubKey: []byte{0x02}}}},
+				Enclave:     NitroConfig{Pcr0: []byte{0x00}, Pcr1: []byte{0x00}, Pcr2: []byte{0x00}, Pcr3: []byte{0x00}, AwsRootCertificate: []byte{0x00}, QosCommit: "c"},
+			},
+		}
+		envelopeBytes, err := borsh.Serialize(env)
+		require.NoError(t, err)
+		require.Equal(t, byte('{'), envelopeBytes[0], "test setup: envelope must start with the 0x7B byte to exercise the regression")
+
+		assert.Equal(t, EnvelopeFormatBorsh, DetectEnvelopeFormat(envelopeBytes))
+	})
+
+	t.Run("oversized_borsh_data_starting_with_json_brace_byte_is_not_misrouted", func(t *testing.T) {
+		// Same coincidental-0x7B-prefix setup as above, but padded past
+		// maxJSONEnvelopeBytes (via a large AwsRootCertificate). A prior
+		// version of DetectEnvelopeFormat tried to skip the json.Valid scan
+		// for any buffer over that size, which misrouted this legitimate,
+		// merely-large Borsh envelope to the JSON decoder and rejected it
+		// as "too large". Confirm it's still detected and decoded as Borsh.
+		env := ManifestEnvelope{
+			Manifest: Manifest{
+				Namespace: Namespace{
+					Name:      strings.Repeat("n", 123),
+					Nonce:     1,
+					QuorumKey: []byte{0x02},
+				},
+				Pivot:       PivotConfig{Hash: Hash256{}, Restart: RestartPolicyNever},
+				ManifestSet: ManifestSet{Threshold: 1, Members: []QuorumMember{{Alias: "a", PubKey: []byte{0x02}}}},
+				ShareSet:    ShareSet{Threshold: 1, Members: []QuorumMember{{Alias: "a", PubKey: []byte{0x02}}}},
+				Enclave: NitroConfig{
+					Pcr0: []byte{0x00}, Pcr1: []byte{0x00}, Pcr2: []byte{0x00}, Pcr3: []byte{0x00},
+					AwsRootCertificate: make([]byte, maxJSONEnvelopeBytes+1),
+					QosCommit:          "c",
+				},
+			},
+		}
+		envelopeBytes, err := borsh.Serialize(env)
+		require.NoError(t, err)
+		require.Equal(t, byte('{'), envelopeBytes[0], "test setup: envelope must start with the 0x7B byte to exercise the regression")
+		require.Greater(t, len(envelopeBytes), maxJSONEnvelopeBytes, "test setup: envelope must exceed the JSON size limit to exercise the regression")
+
+		assert.Equal(t, EnvelopeFormatBorsh, DetectEnvelopeFormat(envelopeBytes))
+	})
+}
+
+func TestDecodeManifestEnvelopeFromBase64_JSONRouting(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString(testdata.QosManifestEnvelopeV2JSON)
+
+	env, m, manifestBytes, envelopeBytes, err := DecodeManifestEnvelopeFromBase64(b64, V2)
+	require.NoError(t, err)
+	require.NotNil(t, env)
+	require.NotNil(t, m)
+
+	assert.Equal(t, "synthetic-turnkey-namespace", m.Namespace.Name)
+	assert.Equal(t, uint32(7), m.Namespace.Nonce)
+	assert.Equal(t, RestartPolicyAlways, m.Pivot.Restart)
+	assert.Empty(t, m.PatchSet.Members, "JSON manifests have no patch set")
+	assert.Equal(t, testdata.QosManifestEnvelopeV2JSON, envelopeBytes)
+
+	expected := strings.TrimSuffix(string(testdata.QosManifestEnvelopeV2CanonicalJSON), "\n")
+	assert.Equal(t, expected, string(manifestBytes))
 }

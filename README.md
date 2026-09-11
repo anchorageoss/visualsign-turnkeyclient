@@ -140,6 +140,15 @@ Decode and display a QoS manifest from a file or base64 string:
 
 # Decode manifest envelope (with approvals)
 ./bin/visualsign-turnkeyclient decode-manifest envelope --file /tmp/manifest.bin --json
+
+# Decode a QOS JSON (v2) manifest envelope (Turnkey's newer TVC format) —
+# format is auto-detected from the decoded bytes, so no --api-version flag
+# is needed. testdata/qos_manifest_envelope_v2.json is a redacted/synthetic
+# fixture with this shape; see "JSON (v2) Manifest Envelopes" below for the
+# schema.
+./bin/visualsign-turnkeyclient decode-manifest envelope \
+  --file testdata/qos_manifest_envelope_v2.json \
+  --json | jq .
 ```
 
 #### Flags
@@ -224,12 +233,12 @@ The manifest hash in the attestation's `UserData` field proves that:
 ### Decoding Process
 
 1. Extract `qosManifestEnvelopeB64` from API response's `bootProof` field
-2. Decode from base64 to get borsh-encoded bytes
-3. Deserialize using borsh format to extract manifest structure
-4. Compute SHA256 hash and compare against attestation UserData
+2. Decode from base64. The format is sniffed, not declared: if the first non-whitespace byte is `{` *and* the full payload parses as valid JSON, it's a QOS JSON (v2) envelope; otherwise it's the legacy Borsh envelope (this also covers malformed JSON that merely starts with `{`). There is no fallback between formats: a malformed envelope of one format is never retried as the other.
+3. Deserialize using the selected format's decoder to extract the manifest structure
+4. Compute the manifest hash and compare against attestation UserData
 
 ```go
-// Manifest structure (simplified)
+// Manifest structure (simplified, Borsh envelope)
 type Manifest struct {
     Namespace   Namespace   // org/app identifier
     Pivot       PivotConfig // binary hash + restart policy
@@ -239,6 +248,28 @@ type Manifest struct {
     PatchSet    PatchSet    // patch approvers
 }
 ```
+
+### JSON (v2) Manifest Envelopes
+
+Turnkey's newer TVC apps send the manifest as QOS JSON rather than Borsh. This
+is a third schema (`manifest.ManifestJSONV2`/`manifest.ManifestEnvelopeJSONV2`),
+not a JSON encoding of the Borsh `Manifest` type: it drops `patchSet` and adds
+`dns` and `pivot.env`.
+
+The hash rule differs from Borsh in one important way: **the manifest bytes
+that get hashed are never the inbound bytes.** QuorumOS defines the manifest
+hash as `sha256` of the manifest re-encoded as its
+[QOS canonical JSON](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md)
+form, a QOS-normalized [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)
+canonicalization (sorted object keys, integers as base-10 strings, `null`
+object members dropped). This client decodes the inbound envelope into typed
+Go structs first (rejecting duplicate keys and unknown fields), then
+re-serializes through the canonical JSON writer before hashing; the inbound
+bytes' key order, whitespace, and any `null` members never affect the hash.
+Byte fields (PCR values, public keys, signatures) are lowercase hex, not
+base64. Only this canonical-manifest hash binds a JSON envelope to attestation
+UserData: unlike the Borsh path, a JSON envelope does not also accept a match
+on the raw or outer-envelope hash.
 
 ### Validation Against Reference Implementation
 

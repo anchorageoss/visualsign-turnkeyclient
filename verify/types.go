@@ -123,8 +123,17 @@ type ManifestSerializationResult struct {
 	RawManifestB64           string // Base64-encoded manifest for debugging
 	EnvelopeB64              string // Base64-encoded envelope for debugging
 	Matches                  bool
-	ReserializationNeeded    bool
-	Error                    string
+	// MatchedVia names which hash actually satisfied the UserData binding
+	// when Matches is true: "raw" (RawManifestHash), "reserialized" (a
+	// Borsh ReserializedManifestHash), "canonical" (a JSON envelope's
+	// canonical-JSON ReserializedManifestHash), or "envelope" (EnvelopeHash).
+	// Formatters must not assume "raw" unconditionally: a JSON envelope
+	// never matches via RawManifestHash (see the isJSONEnvelope gating in
+	// processManifest), so reporting a raw-hash match for it would be
+	// false.
+	MatchedVia            string
+	ReserializationNeeded bool
+	Error                 string
 }
 
 // ParseResult represents the result of parsing transaction

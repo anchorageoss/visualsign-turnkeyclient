@@ -44,6 +44,20 @@ func TestVerifyCommand(t *testing.T) {
 	require.True(t, hasPayload, "Should have --unsigned-payload flag")
 }
 
+func TestMatchedHashLabel(t *testing.T) {
+	require.Equal(t, "Raw manifest hash", matchedHashLabel("raw"))
+	require.Equal(t, "Reserialized manifest hash", matchedHashLabel("reserialized"))
+	require.Equal(t, "Canonical JSON manifest hash", matchedHashLabel("canonical"))
+	require.Equal(t, "Envelope hash", matchedHashLabel("envelope"))
+	// A JSON envelope match must never be labeled as a raw-manifest match:
+	// isJSONEnvelope gating in processManifest means "canonical" is the
+	// only value it can ever produce, but this guards the label mapping
+	// itself against silently defaulting to the wrong (or a misleading)
+	// label for any unrecognized value.
+	require.NotEqual(t, matchedHashLabel("raw"), matchedHashLabel("canonical"))
+	require.Equal(t, "Manifest hash", matchedHashLabel(""))
+}
+
 func TestVerifyCommandHasDevPathFlag(t *testing.T) {
 	cmd := VerifyCommand()
 

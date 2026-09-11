@@ -42,3 +42,16 @@ var SolanaIntermediateGatewayResponseJSON []byte
 //
 //go:embed solana_intermediate_unsigned_payload.txt
 var SolanaIntermediateUnsignedPayload []byte
+
+// QosManifestEnvelopeV2JSON is a synthetic QoS JSON (v2) manifest envelope
+// fixture. Values are placeholder bytes, not a real captured attestation;
+// replacing this with a real captured dev attestation vector is a follow-up.
+//
+//go:embed qos_manifest_envelope_v2.json
+var QosManifestEnvelopeV2JSON []byte
+
+// QosManifestEnvelopeV2CanonicalJSON is the expected QOS canonical JSON bytes
+// of QosManifestEnvelopeV2JSON's embedded manifest.
+//
+//go:embed qos_manifest_envelope_v2_canonical.json
+var QosManifestEnvelopeV2CanonicalJSON []byte

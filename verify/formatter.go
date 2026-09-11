@@ -286,18 +286,24 @@ func (f *Formatter) FormatManifestJSON(m *manifest.Manifest) map[string]interfac
 			"threshold": m.ShareSet.Threshold,
 			"members":   f.FormatMembers(m.ShareSet.Members),
 		},
-		"enclave": map[string]interface{}{
-			"pcr0":               hex.EncodeToString(m.Enclave.Pcr0),
-			"pcr1":               hex.EncodeToString(m.Enclave.Pcr1),
-			"pcr2":               hex.EncodeToString(m.Enclave.Pcr2),
-			"pcr3":               hex.EncodeToString(m.Enclave.Pcr3),
-			"awsRootCertificate": hex.EncodeToString(m.Enclave.AwsRootCertificate),
-			"qosCommit":          m.Enclave.QosCommit,
-		},
+		"enclave": formatEnclave(m.Enclave.Pcr0, m.Enclave.Pcr1, m.Enclave.Pcr2, m.Enclave.Pcr3, m.Enclave.AwsRootCertificate, m.Enclave.QosCommit),
 		"patchSet": map[string]interface{}{
 			"threshold": m.PatchSet.Threshold,
 			"members":   f.FormatPatchMembers(m.PatchSet.Members),
 		},
+	}
+}
+
+// formatEnclave formats the PCR/root-cert/commit fields shared by the Borsh
+// and QOS JSON (v2) enclave (NitroConfig) representations.
+func formatEnclave(pcr0, pcr1, pcr2, pcr3, awsRootCertificate []byte, qosCommit string) map[string]interface{} {
+	return map[string]interface{}{
+		"pcr0":               hex.EncodeToString(pcr0),
+		"pcr1":               hex.EncodeToString(pcr1),
+		"pcr2":               hex.EncodeToString(pcr2),
+		"pcr3":               hex.EncodeToString(pcr3),
+		"awsRootCertificate": hex.EncodeToString(awsRootCertificate),
+		"qosCommit":          qosCommit,
 	}
 }
 
@@ -307,5 +313,75 @@ func (f *Formatter) FormatManifestEnvelopeJSON(env *manifest.ManifestEnvelope) m
 		"manifest":             f.FormatManifestJSON(&env.Manifest),
 		"manifestSetApprovals": f.FormatApprovals(env.ManifestSetApprovals),
 		"shareSetApprovals":    f.FormatApprovals(env.ShareSetApprovals),
+	}
+}
+
+// FormatMembersJSONV2 formats a []manifest.QuorumMemberJSON for output.
+func (f *Formatter) FormatMembersJSONV2(members []manifest.QuorumMemberJSON) []map[string]string {
+	return f.FormatMembers(manifest.ProjectQuorumMembers(members))
+}
+
+// FormatManifestJSONV2 formats a QOS JSON (v2) manifest for JSON output,
+// including the dns and pivot.env fields that have no home on the older
+// Borsh-oriented Manifest type formatted by FormatManifestJSON.
+func (f *Formatter) FormatManifestJSONV2(m *manifest.ManifestJSONV2) map[string]interface{} {
+	pivot := map[string]interface{}{
+		"hash":         hex.EncodeToString(m.Pivot.Hash),
+		"restart":      m.Pivot.Restart,
+		"args":         m.Pivot.Args,
+		"bridgeConfig": m.Pivot.BridgeConfig,
+		"debugMode":    m.Pivot.DebugMode,
+	}
+	if len(m.Pivot.Env) > 0 {
+		// Preserve the externally-tagged PivotEnvValueJSON shape
+		// ({"plain":{"value":"..."}}) rather than flattening to a bare
+		// string: this --json output must match the manifest's actual v2
+		// schema (see PivotEnvValueJSON's doc comment) so it can be fed
+		// back through the decoder.
+		env := make(map[string]manifest.PivotEnvValueJSON, len(m.Pivot.Env))
+		for name, value := range m.Pivot.Env {
+			if value.Plain != nil {
+				env[name] = value
+			}
+		}
+		pivot["env"] = env
+	}
+
+	output := map[string]interface{}{
+		"version": m.Version,
+		"namespace": map[string]interface{}{
+			"name":      m.Namespace.Name,
+			"nonce":     m.Namespace.Nonce,
+			"quorumKey": hex.EncodeToString(m.Namespace.QuorumKey),
+		},
+		"pivot": pivot,
+		"manifestSet": map[string]interface{}{
+			"threshold": m.ManifestSet.Threshold,
+			"members":   f.FormatMembersJSONV2(m.ManifestSet.Members),
+		},
+		"shareSet": map[string]interface{}{
+			"threshold": m.ShareSet.Threshold,
+			"members":   f.FormatMembersJSONV2(m.ShareSet.Members),
+		},
+		"enclave": formatEnclave(m.Enclave.Pcr0, m.Enclave.Pcr1, m.Enclave.Pcr2, m.Enclave.Pcr3, m.Enclave.AwsRootCertificate, m.Enclave.QosCommit),
+	}
+	if m.Dns != nil {
+		output["dns"] = map[string]interface{}{"resolvers": m.Dns.Resolvers}
+	}
+	return output
+}
+
+// FormatApprovalsJSONV2 formats a []manifest.ApprovalJSON for output.
+func (f *Formatter) FormatApprovalsJSONV2(approvals []manifest.ApprovalJSON) []map[string]interface{} {
+	return f.FormatApprovals(manifest.ProjectApprovals(approvals))
+}
+
+// FormatManifestEnvelopeJSONV2 formats a QOS JSON (v2) manifest envelope for
+// JSON output.
+func (f *Formatter) FormatManifestEnvelopeJSONV2(env *manifest.ManifestEnvelopeJSONV2) map[string]interface{} {
+	return map[string]interface{}{
+		"manifest":             f.FormatManifestJSONV2(&env.Manifest),
+		"manifestSetApprovals": f.FormatApprovalsJSONV2(env.ManifestSetApprovals),
+		"shareSetApprovals":    f.FormatApprovalsJSONV2(env.ShareSetApprovals),
 	}
 }

@@ -39,3 +39,6 @@ bin/turnkey-client
 
 test-output.txt
 index.html
+plans/
+.workflow/
+.quack/

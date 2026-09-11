@@ -1,7 +1,9 @@
 package manifest
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -109,31 +111,83 @@ func DecodeRawManifestFromFile(filePath string, version ManifestVersion) (*Manif
 	return m, manifestBytes, nil
 }
 
+// EnvelopeFormat identifies which decoder a manifest envelope's bytes select.
+type EnvelopeFormat int
+
+const (
+	// EnvelopeFormatBorsh is QoS's older Borsh-encoded envelope.
+	EnvelopeFormatBorsh EnvelopeFormat = iota
+	// EnvelopeFormatJSON is QoS's JSON (v2) envelope.
+	EnvelopeFormatJSON
+)
+
+// DetectEnvelopeFormat sniffs data to select a decoder: a JSON manifest
+// envelope begins with '{' (after tolerating leading whitespace) and is
+// valid JSON in full. A Borsh envelope's leading bytes are a little-endian
+// u32 length prefix, which can
+// coincidentally equal '{' (0x7B) for some namespace-name lengths, so a
+// single leading byte is not enough to distinguish the formats; the rest of
+// the bytes must also parse as valid JSON. This is a parser-selection
+// discriminator only, not a trust boundary: each decoder still fails closed
+// independently, with no fallback to the other format on a decode failure.
+//
+// The full json.Valid scan below cannot be skipped based on size alone: a
+// legitimate Borsh envelope can coincidentally start with '{' (see above)
+// and legitimately exceed maxJSONEnvelopeBytes (e.g. a large AWS root
+// certificate or many quorum members), so routing an oversized
+// '{'-prefixed buffer straight to the JSON decoder without validating it
+// would misclassify and reject a valid Borsh envelope. (An earlier version
+// of this function tried exactly that "skip the scan when oversized"
+// shortcut as a cost optimization; it broke this case and was reverted.)
+func DetectEnvelopeFormat(data []byte) EnvelopeFormat {
+	trimmed := bytes.TrimLeft(data, " \t\n\r")
+	if len(trimmed) > 0 && trimmed[0] == '{' && json.Valid(trimmed) {
+		return EnvelopeFormatJSON
+	}
+	return EnvelopeFormatBorsh
+}
+
 // DecodeManifestEnvelopeFromBase64 decodes a manifest envelope from base64.
+// The envelope bytes are sniffed to select a decoder: a JSON (v2) envelope
+// is decoded and canonicalized via the QOS JSON path, anything else is
+// decoded as Borsh using the given version. There is no fallback between
+// formats: a malformed envelope of one format is never retried as the other.
+//
+// For a JSON envelope, the returned *ManifestEnvelope and *Manifest are a
+// lossy projection (see ManifestJSONV2.ToManifest) for reporting purposes
+// only; manifestBytes is always the true QOS canonical JSON bytes that
+// should be hashed and compared against attestation UserData.
 func DecodeManifestEnvelopeFromBase64(manifestB64 string, version ManifestVersion) (*ManifestEnvelope, *Manifest, []byte, []byte, error) {
 	envelopeBytes, err := base64.StdEncoding.DecodeString(manifestB64)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to decode base64: %w", err)
 	}
-
-	env, err := decodeEnvelope(envelopeBytes, version)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
-	manifestBytes, err := reserializeManifest(env.Manifest, version)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	return env, &env.Manifest, manifestBytes, envelopeBytes, nil
+	return DecodeManifestEnvelopeFromBytes(envelopeBytes, version)
 }
 
-// DecodeManifestEnvelopeFromFile decodes a manifest envelope from a binary file.
+// DecodeManifestEnvelopeFromFile decodes a manifest envelope from a file. See
+// DecodeManifestEnvelopeFromBase64 for the format-sniffing behavior.
 func DecodeManifestEnvelopeFromFile(filePath string, version ManifestVersion) (*ManifestEnvelope, *Manifest, []byte, []byte, error) {
 	envelopeBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to read file: %w", err)
 	}
+	return DecodeManifestEnvelopeFromBytes(envelopeBytes, version)
+}
+
+// DecodeManifestEnvelopeFromBytes decodes a manifest envelope whose raw bytes
+// are already in hand (e.g. after a caller has read a file or base64-decoded
+// a string for its own purposes, such as sniffing the format up front). See
+// DecodeManifestEnvelopeFromBase64 for the format-sniffing behavior.
+func DecodeManifestEnvelopeFromBytes(envelopeBytes []byte, version ManifestVersion) (*ManifestEnvelope, *Manifest, []byte, []byte, error) {
+	if DetectEnvelopeFormat(envelopeBytes) == EnvelopeFormatJSON {
+		jsonEnv, manifestBytes, err := DecodeJSONManifestEnvelope(envelopeBytes)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		projected := jsonEnv.ToManifestEnvelope()
+		return &projected, &projected.Manifest, manifestBytes, envelopeBytes, nil
+	}
 
 	env, err := decodeEnvelope(envelopeBytes, version)
 	if err != nil {
@@ -147,27 +201,27 @@ func DecodeManifestEnvelopeFromFile(filePath string, version ManifestVersion) (*
 	return env, &env.Manifest, manifestBytes, envelopeBytes, nil
 }
 
-// DecodeManifestFromBase64 decodes a base64-encoded manifest envelope.
+// DecodeManifestFromBase64 decodes a base64-encoded manifest envelope. The
+// envelope bytes are sniffed to select a decoder, same as
+// DecodeManifestEnvelopeFromBase64: a JSON (v2) envelope is decoded via the
+// QOS JSON path, anything else as Borsh using the given version.
 func DecodeManifestFromBase64(manifestB64 string, version ManifestVersion) (*Manifest, []byte, []byte, error) {
 	envelopeBytes, err := base64.StdEncoding.DecodeString(manifestB64)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to decode base64: %w", err)
 	}
 
-	env, err := decodeEnvelope(envelopeBytes, version)
+	_, m, manifestBytes, returnedEnvelopeBytes, err := DecodeManifestEnvelopeFromBytes(envelopeBytes, version)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	manifestBytes, err := reserializeManifest(env.Manifest, version)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return &env.Manifest, manifestBytes, envelopeBytes, nil
+	return m, manifestBytes, returnedEnvelopeBytes, nil
 }
 
 // DecodeManifestFromFile decodes a manifest from a binary file.
-// Tries envelope first, then raw manifest, using the specified version.
+// Tries envelope first (format-sniffed the same way as
+// DecodeManifestEnvelopeFromFile, so a JSON v2 envelope decodes correctly),
+// then raw manifest, using the specified version.
 func DecodeManifestFromFile(filePath string, version ManifestVersion) (*Manifest, []byte, []byte, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -175,19 +229,15 @@ func DecodeManifestFromFile(filePath string, version ManifestVersion) (*Manifest
 	}
 
 	// Try envelope first
-	env, envErr := decodeEnvelope(data, version)
+	_, m, manifestBytes, _, envErr := DecodeManifestEnvelopeFromBytes(data, version)
 	if envErr == nil {
-		manifestBytes, err := reserializeManifest(env.Manifest, version)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		return &env.Manifest, manifestBytes, data, nil
+		return m, manifestBytes, data, nil
 	}
 
 	// Try raw manifest
-	m, rawErr := decodeRawManifest(data, version)
+	rawManifest, rawErr := decodeRawManifest(data, version)
 	if rawErr == nil {
-		return m, data, data, nil
+		return rawManifest, data, data, nil
 	}
 
 	return nil, nil, nil, fmt.Errorf("failed to deserialize as envelope or raw manifest: %w", errors.Join(envErr, rawErr))
