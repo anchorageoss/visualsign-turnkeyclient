@@ -137,6 +137,41 @@ func TestDecodeRawManifestFromBase64(t *testing.T) {
 	})
 }
 
+// TestDecodeManifestFromBase64_JSONEnvelope verifies that the
+// DecodeManifestFromBase64/DecodeManifestFromFile compatibility helpers
+// route through the same format-sniffing as DecodeManifestEnvelopeFromBase64
+// et al. Before this fix, both called decodeEnvelope (Borsh-only) directly,
+// so a caller using these documented public functions would reject every
+// valid JSON v2 envelope as a Borsh deserialize failure, even though
+// DecodeManifestEnvelopeFromBase64 supported JSON just fine.
+func TestDecodeManifestFromBase64_JSONEnvelope(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString(testdata.QosManifestEnvelopeV2JSON)
+
+	t.Run("DecodeManifestFromBase64", func(t *testing.T) {
+		m, manifestBytes, envelopeBytes, err := DecodeManifestFromBase64(b64, V2)
+		require.NoError(t, err)
+		require.NotNil(t, m)
+		assert.Equal(t, "synthetic-turnkey-namespace", m.Namespace.Name)
+		assert.Equal(t, testdata.QosManifestEnvelopeV2JSON, envelopeBytes)
+		expected := strings.TrimSuffix(string(testdata.QosManifestEnvelopeV2CanonicalJSON), "\n")
+		assert.Equal(t, expected, string(manifestBytes))
+	})
+
+	t.Run("DecodeManifestFromFile", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		p := filepath.Join(tmpDir, "envelope.json")
+		require.NoError(t, os.WriteFile(p, testdata.QosManifestEnvelopeV2JSON, 0644))
+
+		m, manifestBytes, envelopeBytes, err := DecodeManifestFromFile(p, V2)
+		require.NoError(t, err)
+		require.NotNil(t, m)
+		assert.Equal(t, "synthetic-turnkey-namespace", m.Namespace.Name)
+		assert.Equal(t, testdata.QosManifestEnvelopeV2JSON, envelopeBytes)
+		expected := strings.TrimSuffix(string(testdata.QosManifestEnvelopeV2CanonicalJSON), "\n")
+		assert.Equal(t, expected, string(manifestBytes))
+	})
+}
+
 func TestDecodeManifestEnvelopeFromFile(t *testing.T) {
 	t.Run("non-existent file", func(t *testing.T) {
 		_, _, _, _, err := DecodeManifestEnvelopeFromFile("does-not-exist.bin", V2)

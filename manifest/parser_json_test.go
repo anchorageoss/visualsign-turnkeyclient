@@ -115,6 +115,22 @@ func TestDecodeJSONEnvelope(t *testing.T) {
 		})
 	})
 
+	t.Run("dns_decodes_and_hashes", func(t *testing.T) {
+		// An IPv4 vector and an alternate (non-canonical-form) IPv6 vector:
+		// decodeDnsConfigJSON validates parseability via net.ParseIP but
+		// stores and hashes the original input spelling verbatim, never a
+		// normalized/expanded form. If a future change accidentally
+		// normalized resolver text (e.g. via net.ParseIP.String()), this
+		// would silently diverge from QOS's own canonical hash, since QOS's
+		// DNS resolver field is a plain string, not a parsed/reformatted IP.
+		in := injectDNS(validEnvelopeJSON(), `{"resolvers": ["10.0.0.1", "2001:0DB8::1"]}`)
+		env, manifestBytes, err := DecodeJSONManifestEnvelope([]byte(in))
+		require.NoError(t, err)
+		require.NotNil(t, env.Manifest.Dns)
+		assert.Equal(t, []string{"10.0.0.1", "2001:0DB8::1"}, env.Manifest.Dns.Resolvers)
+		assert.Contains(t, string(manifestBytes), `"dns":{"resolvers":["10.0.0.1","2001:0DB8::1"]}`)
+	})
+
 	t.Run("wrong_version", func(t *testing.T) {
 		for _, tc := range []struct {
 			name string

@@ -201,27 +201,27 @@ func DecodeManifestEnvelopeFromBytes(envelopeBytes []byte, version ManifestVersi
 	return env, &env.Manifest, manifestBytes, envelopeBytes, nil
 }
 
-// DecodeManifestFromBase64 decodes a base64-encoded manifest envelope.
+// DecodeManifestFromBase64 decodes a base64-encoded manifest envelope. The
+// envelope bytes are sniffed to select a decoder, same as
+// DecodeManifestEnvelopeFromBase64: a JSON (v2) envelope is decoded via the
+// QOS JSON path, anything else as Borsh using the given version.
 func DecodeManifestFromBase64(manifestB64 string, version ManifestVersion) (*Manifest, []byte, []byte, error) {
 	envelopeBytes, err := base64.StdEncoding.DecodeString(manifestB64)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to decode base64: %w", err)
 	}
 
-	env, err := decodeEnvelope(envelopeBytes, version)
+	_, m, manifestBytes, returnedEnvelopeBytes, err := DecodeManifestEnvelopeFromBytes(envelopeBytes, version)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	manifestBytes, err := reserializeManifest(env.Manifest, version)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return &env.Manifest, manifestBytes, envelopeBytes, nil
+	return m, manifestBytes, returnedEnvelopeBytes, nil
 }
 
 // DecodeManifestFromFile decodes a manifest from a binary file.
-// Tries envelope first, then raw manifest, using the specified version.
+// Tries envelope first (format-sniffed the same way as
+// DecodeManifestEnvelopeFromFile, so a JSON v2 envelope decodes correctly),
+// then raw manifest, using the specified version.
 func DecodeManifestFromFile(filePath string, version ManifestVersion) (*Manifest, []byte, []byte, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -229,19 +229,15 @@ func DecodeManifestFromFile(filePath string, version ManifestVersion) (*Manifest
 	}
 
 	// Try envelope first
-	env, envErr := decodeEnvelope(data, version)
+	_, m, manifestBytes, _, envErr := DecodeManifestEnvelopeFromBytes(data, version)
 	if envErr == nil {
-		manifestBytes, err := reserializeManifest(env.Manifest, version)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		return &env.Manifest, manifestBytes, data, nil
+		return m, manifestBytes, data, nil
 	}
 
 	// Try raw manifest
-	m, rawErr := decodeRawManifest(data, version)
+	rawManifest, rawErr := decodeRawManifest(data, version)
 	if rawErr == nil {
-		return m, data, data, nil
+		return rawManifest, data, data, nil
 	}
 
 	return nil, nil, nil, fmt.Errorf("failed to deserialize as envelope or raw manifest: %w", errors.Join(envErr, rawErr))
