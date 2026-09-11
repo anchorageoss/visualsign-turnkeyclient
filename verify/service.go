@@ -535,8 +535,12 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		// binding, defeating the point of canonicalizing before hashing.
 		reserializedMatches := reserializedManifestHash == userDataHex
 		var matches bool
+		var matchedVia string
 		if isJSONEnvelope {
 			matches = reserializedMatches
+			if matches {
+				matchedVia = "canonical"
+			}
 		} else {
 			rawManifestMatches := rawManifestHash != "" && rawManifestHash == userDataHex
 			// envelopeErr == nil is required here (not just a hash match):
@@ -548,10 +552,19 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 			// raw-manifest field instead.
 			envelopeMatches := envelopeErr == nil && serializationResult.EnvelopeHash != "" && serializationResult.EnvelopeHash == userDataHex
 			matches = rawManifestMatches || reserializedMatches || envelopeMatches
+			switch {
+			case rawManifestMatches:
+				matchedVia = "raw"
+			case reserializedMatches:
+				matchedVia = "reserialized"
+			case envelopeMatches:
+				matchedVia = "envelope"
+			}
 		}
 
 		if matches {
 			serializationResult.Matches = true
+			serializationResult.MatchedVia = matchedVia
 		} else {
 			serializationResult.ReserializationNeeded = true
 			mismatchMsg := fmt.Sprintf(

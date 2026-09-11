@@ -243,8 +243,10 @@ func decodeStringField(v any, context string) (string, error) {
 // validateDisplaySafeString rejects characters that would let a manifest
 // string control what a human sees when this tool renders the decoded
 // manifest for visual verification before signing. The canonical hash still
-// binds to the raw bytes regardless of this check, so this cannot be used to
-// forge a signature; it exists solely to stop an attacker-controlled string
+// binds to the decoded/canonicalized value regardless of this check (for a
+// JSON envelope, a re-encoding of the decoded Go value, not the inbound
+// bytes verbatim — see CanonicalizeManifestJSONV2), so this cannot be used
+// to forge a signature; it exists solely to stop an attacker-controlled string
 // from manipulating the human-readable display (terminal or --json) that a
 // signer relies on to confirm what they're approving.
 //

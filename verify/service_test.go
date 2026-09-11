@@ -724,6 +724,27 @@ func TestProcessManifest(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, result.ManifestReserialization.Matches)
 		require.Equal(t, envelopeHash, result.ManifestReserialization.EnvelopeHash)
+		require.Equal(t, "envelope", result.ManifestReserialization.MatchedVia)
+	})
+
+	t.Run("raw manifest only", func(t *testing.T) {
+		rawManifestBytes, err := borsh.Serialize(manifest.Manifest{})
+		require.NoError(t, err)
+		rawManifestB64 := base64.StdEncoding.EncodeToString(rawManifestBytes)
+		rawManifestHash := manifest.ComputeHash(rawManifestBytes)
+		userData, err := hex.DecodeString(rawManifestHash)
+		require.NoError(t, err)
+
+		response := &api.SignablePayloadResponse{
+			QosManifestB64:  rawManifestB64,
+			ManifestVersion: manifest.V2,
+		}
+		result := &VerifyResult{}
+
+		err = service.processManifest(response, userData, result)
+		require.NoError(t, err)
+		require.True(t, result.ManifestReserialization.Matches)
+		require.Equal(t, "raw", result.ManifestReserialization.MatchedVia)
 	})
 
 	t.Run("json envelope", func(t *testing.T) {
@@ -742,6 +763,7 @@ func TestProcessManifest(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result.Manifest)
 		require.True(t, result.ManifestReserialization.Matches)
+		require.Equal(t, "canonical", result.ManifestReserialization.MatchedVia)
 		require.Equal(t, manifestHash, result.QosManifestHash)
 		require.Equal(t, "synthetic-turnkey-namespace", result.Manifest.Namespace.Name)
 		require.Empty(t, result.Manifest.PatchSet.Members, "JSON manifests have no patch set")

@@ -333,10 +333,15 @@ func (f *Formatter) FormatManifestJSONV2(m *manifest.ManifestJSONV2) map[string]
 		"debugMode":    m.Pivot.DebugMode,
 	}
 	if len(m.Pivot.Env) > 0 {
-		env := make(map[string]string, len(m.Pivot.Env))
+		// Preserve the externally-tagged PivotEnvValueJSON shape
+		// ({"plain":{"value":"..."}}) rather than flattening to a bare
+		// string: this --json output must match the manifest's actual v2
+		// schema (see PivotEnvValueJSON's doc comment) so it can be fed
+		// back through the decoder.
+		env := make(map[string]manifest.PivotEnvValueJSON, len(m.Pivot.Env))
 		for name, value := range m.Pivot.Env {
 			if value.Plain != nil {
-				env[name] = value.Plain.Value
+				env[name] = value
 			}
 		}
 		pivot["env"] = env

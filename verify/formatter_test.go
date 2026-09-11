@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
@@ -10,6 +11,34 @@ import (
 func TestNewFormatter(t *testing.T) {
 	formatter := NewFormatter()
 	require.NotNil(t, formatter)
+}
+
+// TestFormatManifestJSONV2_PivotEnvPreservesSchema verifies that
+// FormatManifestJSONV2's "env" output round-trips through the manifest's
+// actual v2 schema (externally-tagged {"plain":{"value":"..."}}), rather
+// than flattening each entry to a bare string. A flattened string doesn't
+// match manifest.PivotEnvValueJSON's json tags and can't be fed back
+// through the decoder.
+func TestFormatManifestJSONV2_PivotEnvPreservesSchema(t *testing.T) {
+	m := &manifest.ManifestJSONV2{
+		Pivot: manifest.PivotConfigJSONV2{
+			Env: map[string]manifest.PivotEnvValueJSON{
+				"EXAMPLE_VAR": {Plain: &manifest.PivotEnvPlainValueJSON{Value: "example-value"}},
+			},
+		},
+	}
+
+	formatter := NewFormatter()
+	out := formatter.FormatManifestJSONV2(m)
+
+	pivot, ok := out["pivot"].(map[string]interface{})
+	require.True(t, ok, "pivot must be present")
+	env, ok := pivot["env"].(map[string]manifest.PivotEnvValueJSON)
+	require.True(t, ok, "env must preserve manifest.PivotEnvValueJSON, not a flattened string")
+
+	jsonBytes, err := json.Marshal(env["EXAMPLE_VAR"])
+	require.NoError(t, err)
+	require.JSONEq(t, `{"plain":{"value":"example-value"}}`, string(jsonBytes))
 }
 
 func TestFormatVerificationResult_IntermediateOutput(t *testing.T) {
