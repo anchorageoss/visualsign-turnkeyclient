@@ -888,6 +888,30 @@ func TestProcessManifest(t *testing.T) {
 		require.False(t, result.ManifestReserialization.Matches)
 		require.NotNil(t, result.Manifest, "the raw-manifest fallback should still have decoded for display")
 	})
+
+	t.Run("EnvelopeHash is surfaced for debugging even on total decode failure", func(t *testing.T) {
+		// The envelope base64 decodes fine but is not a valid Borsh envelope,
+		// and there's no raw-manifest field to fall back to, so
+		// processManifest returns an error without ever reaching the
+		// success path. EnvelopeHash must still be populated in that
+		// early-return debug block: its doc comment promises it's surfaced
+		// "even if [the envelope] then fails to deserialize", which
+		// previously only held true when a raw-manifest fallback happened
+		// to succeed.
+		garbageEnvelopeBytes := []byte("not a valid borsh manifest envelope")
+		envelopeB64 := base64.StdEncoding.EncodeToString(garbageEnvelopeBytes)
+		expectedEnvelopeHash := manifest.ComputeHash(garbageEnvelopeBytes)
+
+		response := &api.SignablePayloadResponse{
+			QosManifestEnvelopeB64: envelopeB64,
+			ManifestVersion:        manifest.V2,
+		}
+		result := &VerifyResult{}
+
+		err := service.processManifest(response, []byte{}, result)
+		require.Error(t, err, "no raw-manifest fallback is available, so this must be a total decode failure")
+		require.Equal(t, expectedEnvelopeHash, result.ManifestReserialization.EnvelopeHash)
+	})
 }
 
 // TestCheckMetadataDigest verifies the metadataDigest assertion rules.

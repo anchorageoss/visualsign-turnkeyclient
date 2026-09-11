@@ -454,6 +454,21 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		}
 	}
 
+	// Compute the envelope hash whenever the envelope base64 decoded, even if
+	// it then fails to deserialize as a manifest envelope (or the raw
+	// manifest fallback below also fails): this hash is surfaced for
+	// debugging (cmd/verify.go prints it regardless of match outcome), even
+	// on a total decode failure. base64.StdEncoding.DecodeString returns a
+	// non-nil partial slice even on error, so guard on the decode error, not
+	// on slice nilness, or a decode failure would leak a hash of garbage
+	// bytes here. The security-relevant "matches" check further below
+	// additionally requires envelopeErr == nil, so this hash alone can
+	// never satisfy the binding unless the envelope actually decoded.
+	var envelopeHash string
+	if response.QosManifestEnvelopeB64 != "" && envelopeBase64Err == nil {
+		envelopeHash = manifest.ComputeHash(envelopeBytes)
+	}
+
 	mv := response.ManifestVersion
 	// Only fast-fail on a missing manifest version when we've confirmed the
 	// envelope isn't JSON (or there's no envelope at all): a Borsh-shaped
@@ -495,6 +510,7 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		result.ManifestReserialization.RawManifestHash = rawManifestHash
 		result.ManifestReserialization.RawManifestB64 = response.QosManifestB64
 		result.ManifestReserialization.EnvelopeB64 = response.QosManifestEnvelopeB64
+		result.ManifestReserialization.EnvelopeHash = envelopeHash
 		if len(userData) > 0 {
 			result.ManifestReserialization.UserDataHash = hex.EncodeToString(userData)
 		}
@@ -509,19 +525,7 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 	serializationResult := ManifestSerializationResult{
 		RawManifestHash:          rawManifestHash,
 		ReserializedManifestHash: reserializedManifestHash,
-	}
-
-	// Compute the envelope hash whenever the envelope base64 decoded, even if
-	// it then failed to deserialize as a manifest envelope: this hash is
-	// surfaced for debugging (cmd/verify.go prints it regardless of match
-	// outcome). base64.StdEncoding.DecodeString returns a non-nil partial
-	// slice even on error, so guard on the decode error, not on slice
-	// nilness, or a decode failure would leak a hash of garbage bytes here.
-	// The security-relevant "matches" check below additionally requires
-	// envelopeErr == nil, so this hash alone can never satisfy the binding
-	// unless the envelope actually decoded.
-	if response.QosManifestEnvelopeB64 != "" && envelopeBase64Err == nil {
-		serializationResult.EnvelopeHash = manifest.ComputeHash(envelopeBytes)
+		EnvelopeHash:             envelopeHash,
 	}
 
 	// Compare against UserData
