@@ -114,8 +114,43 @@ func TestRequestChainMetadata_JSONRoundTrip(t *testing.T) {
 
 	t.Run("unmarshal rejects unknown chain discriminator", func(t *testing.T) {
 		var m RequestChainMetadata
-		err := json.Unmarshal([]byte(`{"chain":"CHAIN_NEAR"}`), &m)
+		err := json.Unmarshal([]byte(`{"chain":"CHAIN_DOGECOIN"}`), &m)
 		require.Error(t, err)
+	})
+
+	t.Run("near round-trips through the tagged shape", func(t *testing.T) {
+		original := RequestChainMetadata{
+			Near: &NearChainMetadata{
+				NetworkID: strPtr("NEAR_MAINNET"),
+				TokenMappings: map[string]TokenMetadataEntry{
+					"nep141:wrap.near": {
+						Value:       `{"symbol":"wNEAR","decimals":24}`,
+						OriginChain: originChainPtr(TokenOriginChainNear),
+					},
+				},
+			},
+		}
+		encoded, err := json.Marshal(original)
+		require.NoError(t, err)
+
+		// The discriminator is a sibling of the variant's own fields, not a
+		// wrapper around them.
+		var flat map[string]any
+		require.NoError(t, json.Unmarshal(encoded, &flat))
+		require.Equal(t, "CHAIN_NEAR", flat["chain"])
+		require.Equal(t, "NEAR_MAINNET", flat["networkId"])
+		require.Contains(t, flat, "tokenMappings")
+
+		var back RequestChainMetadata
+		require.NoError(t, json.Unmarshal(encoded, &back))
+		require.Equal(t, original, back)
+	})
+
+	t.Run("unmarshal clears a variant left over from a previous decode", func(t *testing.T) {
+		m := RequestChainMetadata{Ethereum: &EthereumChainMetadata{}}
+		require.NoError(t, json.Unmarshal([]byte(`{"chain":"CHAIN_NEAR"}`), &m))
+		require.Nil(t, m.Ethereum, "a stale variant would make the value ambiguous")
+		require.NotNil(t, m.Near)
 	})
 
 	t.Run("marshal rejects both variants set", func(t *testing.T) {

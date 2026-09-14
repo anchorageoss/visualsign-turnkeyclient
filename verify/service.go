@@ -73,6 +73,11 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 			return nil, fmt.Errorf("ChainMetadata.Solana requires a Solana chain, got %q", chain)
 		}
 	}
+	if req.ChainMetadata != nil && req.ChainMetadata.Near != nil {
+		if !strings.HasPrefix(chain, "CHAIN_NEAR") {
+			return nil, fmt.Errorf("ChainMetadata.Near requires a NEAR chain, got %q", chain)
+		}
+	}
 	apiReq := &api.CreateSignablePayloadRequest{
 		UnsignedPayload:           req.UnsignedPayload,
 		Chain:                     chain,
