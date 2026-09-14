@@ -211,8 +211,16 @@ func (m RequestChainMetadata) MarshalJSON() ([]byte, error) {
 		return marshalTaggedChainMetadata("CHAIN_SOLANA", m.Solana)
 	case m.Ethereum != nil:
 		return marshalTaggedChainMetadata("CHAIN_ETHEREUM", m.Ethereum)
-	default:
+	case m.Near != nil:
 		return marshalTaggedChainMetadata("CHAIN_NEAR", m.Near)
+	default:
+		// Unreachable while setVariants above reports exactly one, and named
+		// rather than folded into the NEAR arm so a variant added to the struct
+		// without a case here errors instead of marshalling as NEAR with a nil
+		// payload -- which marshalTaggedChainMetadata would turn into a panic
+		// on a nil map.
+		return nil, fmt.Errorf(
+			"RequestChainMetadata: exactly one variant is set but none matched; a variant was added without a MarshalJSON case")
 	}
 }
 

@@ -1,6 +1,8 @@
 package verify
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"testing"
 
@@ -223,4 +225,40 @@ func FuzzDecodeNearIntermediateOutput(f *testing.F) {
 			t.Fatalf("decoded an envelope kind that does not exist: %q", out.Envelope.Kind)
 		}
 	})
+}
+
+// TestDecodeNearIntermediateOutput_RejectsInvalidUTF8 pins the decoder as no
+// more permissive than the Rust producer, whose borsh String goes through
+// String::from_utf8. Accepting invalid bytes would also mean a rendered field
+// differs from the signed one, since json.Marshal substitutes U+FFFD.
+func TestDecodeNearIntermediateOutput_RejectsInvalidUTF8(t *testing.T) {
+	valid := decodeFixture(t, nearRawMessageFixture)
+
+	// The raw message is the final field: a u32 length then "payload".
+	// Replace its bytes with a lone continuation byte sequence.
+	bad := append([]byte(nil), valid[:len(valid)-7]...)
+	bad = append(bad, 0xff, 0xfe, 0xfd, 0x80, 0x80, 0x80, 0x80)
+
+	_, err := DecodeNearIntermediateOutput(bad)
+	require.ErrorContains(t, err, "not valid UTF-8")
+}
+
+// TestDecodeNearIntermediateOutput_BoundsTheActionsAllocation checks the guard
+// bounds the allocation and not merely the count. A NearActionIo is far wider
+// than the 5 bytes its smallest encoding occupies, so a count bounded only by
+// the remaining byte count would let a small payload reserve a large slice.
+func TestDecodeNearIntermediateOutput_BoundsTheActionsAllocation(t *testing.T) {
+	tx := decodeFixture(t, nearTxFixture)
+
+	// The actions vector's u32 count sits right after the block hash. Find it
+	// by its known value of 3 rather than by a hand-counted offset.
+	want := []byte{0x03, 0x00, 0x00, 0x00}
+	at := bytes.LastIndex(tx, want)
+	require.Positive(t, at, "fixture must contain the actions count")
+
+	huge := append([]byte(nil), tx...)
+	binary.LittleEndian.PutUint32(huge[at:], 0xFFFFFFF0)
+
+	_, err := DecodeNearIntermediateOutput(huge)
+	require.ErrorContains(t, err, "actions length")
 }

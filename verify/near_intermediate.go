@@ -2,9 +2,9 @@ package verify
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"math"
+	"unicode/utf8"
 )
 
 // Decoder for the NEAR "intermediate output" — the machine-readable structured
@@ -190,13 +190,6 @@ func DecodeNearIntermediateOutput(b []byte) (*NearIntermediateOutput, error) {
 	return out, nil
 }
 
-// MarshalJSON renders the envelope as its variant alone, so a consumer reads
-// {"kind":"Nep413","nep413":{...}} rather than a struct with two nil siblings.
-func (e NearEnvelopeIo) MarshalJSON() ([]byte, error) {
-	type alias NearEnvelopeIo
-	return json.Marshal(alias(e))
-}
-
 type borshReader struct {
 	buf []byte
 	at  int
@@ -259,6 +252,15 @@ func (r *borshReader) string() (string, error) {
 	b, err := r.take(int(n))
 	if err != nil {
 		return "", fmt.Errorf("string of %d bytes: %w", n, err)
+	}
+	// Rust's borsh decodes String through String::from_utf8 and rejects
+	// invalid sequences, so accepting them here would make this decoder a
+	// superset of the producer -- the fourth silent acceptance this file
+	// exists to avoid. It matters downstream too: json.Marshal replaces
+	// invalid bytes with U+FFFD, so a rendered field would differ from the
+	// bytes that were signed.
+	if !utf8.Valid(b) {
+		return "", fmt.Errorf("string of %d bytes is not valid UTF-8", n)
 	}
 	return string(b), nil
 }
@@ -360,12 +362,17 @@ func (r *borshReader) transaction() (NearTransactionIo, error) {
 	if err != nil {
 		return tx, fmt.Errorf("actions length: %w", err)
 	}
-	// Each action costs at least one byte (its variant tag), so a length larger
-	// than what remains is corrupt and must not drive an allocation.
-	if uint64(count) > uint64(r.remaining()) {
+	// The cheapest encodable action is 5 bytes: a variant tag plus an empty
+	// u32-prefixed string. A count larger than what that allows is corrupt.
+	const minEncodedActionBytes = 5
+	if uint64(count) > uint64(r.remaining()/minEncodedActionBytes) {
 		return tx, fmt.Errorf("actions length %d exceeds the %d bytes remaining", count, r.remaining())
 	}
-	tx.Actions = make([]NearActionIo, 0, count)
+	// The bound above limits the count; it does not limit the allocation, and
+	// a NearActionIo is far wider than its smallest encoding. Cap the hint and
+	// let append grow -- the loop is already bounded, so this costs a
+	// reallocation rather than admitting an amplified reservation.
+	tx.Actions = make([]NearActionIo, 0, min(int(count), 256))
 	for i := range count {
 		action, err := r.action()
 		if err != nil {
