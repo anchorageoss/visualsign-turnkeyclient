@@ -177,15 +177,16 @@ func TestDecodeNearIntermediateOutput_Rejections(t *testing.T) {
 }
 
 // FuzzDecodeNearIntermediateOutput asserts the decoder never panics, however
-// malformed its input. It reads a length-prefixed, self-describing format from
-// bytes the parser produced but the transport could have corrupted, so every
-// length and tag in the stream is attacker-influenceable in principle: an
-// out-of-range slice or an unbounded allocation here would be reachable from a
-// mangled response rather than only from a parser bug.
+// malformed its input. Borsh is positional rather than self-describing, so
+// every length and tag is read at a fixed offset and taken on trust; the bytes
+// come from the parser but reach here over a transport, which makes each of
+// them attacker-influenceable in principle. An out-of-range slice or an
+// unbounded allocation would then be reachable from a mangled response rather
+// than only from a parser bug.
 //
-// A successful decode is additionally required to be faithful: re-reading what
-// was decoded must consume every byte, which is what the trailing-byte check
-// inside the decoder promises.
+// It also asserts the two invariants a caller reads the result through: a
+// failed decode returns no value, and a successful one carries the gated schema
+// version and an envelope whose kind agrees with which payload is populated.
 func FuzzDecodeNearIntermediateOutput(f *testing.F) {
 	for _, seed := range []string{nearTxFixture, nearNep413Fixture, nearRawMessageFixture} {
 		raw, err := hex.DecodeString(seed)

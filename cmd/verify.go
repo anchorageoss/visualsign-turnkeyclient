@@ -74,7 +74,7 @@ func VerifyCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  "chain",
-				Usage: "Blockchain network (CHAIN_SOLANA, CHAIN_ETHEREUM, etc)",
+				Usage: "Blockchain network (CHAIN_SOLANA, CHAIN_NEAR, CHAIN_ETHEREUM, etc). Also selects which decoder reads --include-intermediate-output, whose bytes do not name their own chain",
 				Value: "CHAIN_SOLANA",
 			},
 			&cli.BoolFlag{
@@ -96,7 +96,7 @@ func VerifyCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  "chain-metadata",
-				Usage: `Chain metadata JSON, tagged by "chain" (e.g. {"chain":"CHAIN_ETHEREUM","abiMappings":{"0xAddr":{"value":"[...]"}}})`,
+				Usage: `Chain metadata JSON, tagged by "chain" (e.g. {"chain":"CHAIN_ETHEREUM","abiMappings":{"0xAddr":{"value":"[...]"}}} or {"chain":"CHAIN_NEAR","tokenMappings":{"nep141:wrap.near":{"value":"[...]"}}})`,
 			},
 			&cli.BoolFlag{
 				Name:  "include-intermediate-output",
