@@ -29,6 +29,14 @@ var SolanaIntermediateSampleJSON []byte
 //go:embed solana_intermediate_simulated_sample.json
 var SolanaIntermediateSimulatedSampleJSON []byte
 
+// SolanaIntermediateJSONParsedSampleJSON is real parser_cli v3 output for a
+// Compute Budget instruction plus a System transfer: the first carries
+// SolanaJSONParseError, the second SolanaJSONParsedData. Unsigned; it pins the
+// decode layout only.
+//
+//go:embed solana_intermediate_json_parsed_sample.json
+var SolanaIntermediateJSONParsedSampleJSON []byte
+
 // SolanaIntermediateGatewayResponseJSON is the full Turnkey-shaped response the
 // local parser gateway returned for SolanaIntermediateUnsignedPayload with
 // include_intermediate_output=true (mock boot proof + real app signature +

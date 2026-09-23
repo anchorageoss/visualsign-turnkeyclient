@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 
@@ -20,7 +21,7 @@ import (
 
 // SolanaIntermediateSchemaVersion is the schema_version this client understands.
 // It matches SOLANA_INTERMEDIATE_SCHEMA_VERSION in the parser's intermediate.rs.
-const SolanaIntermediateSchemaVersion uint16 = 2
+const SolanaIntermediateSchemaVersion uint16 = 3
 
 // RegisteredSource mirrors intermediate.rs RegisteredSource: where a program
 // ID was registered
@@ -134,6 +135,18 @@ type SolanaIntermediateInstruction struct {
 	ParsedInstructionData *SolanaParsedInstructionDataIo   `json:"parsedInstructionData,omitempty"`
 	IdlParseError         *SolanaIdlParseError             `json:"idlParseError,omitempty"`
 	RegisteredSource      RegisteredSource                 `json:"registeredSource"`
+	// SolanaJSONParsedData is the decode by Solana's own jsonParsed decoder
+	// (solana_transaction_status), run by the parser, of a Native program
+	// instruction it supports (System, SPL Token/Token-2022, ATA, Memo, Stake,
+	// Vote, Address Lookup Table, the BPF loaders). Nil for non-Native
+	// programs, and when SolanaJSONParseError is set. Added in schema_version 3.
+	SolanaJSONParsedData *SolanaJSONParsedInstructionDataIo `json:"solanaJsonParsedData,omitempty"`
+	// SolanaJSONParseError says why a Native program instruction has no
+	// SolanaJSONParsedData: the decoder does not support the program (e.g.
+	// Compute Budget, SPL Stake Pool), the instruction reads an account through
+	// an address lookup table, or the decoder rejected it. Nil when it was
+	// decoded or the program is not Native. Added in schema_version 3.
+	SolanaJSONParseError *string `json:"solanaJsonParseError,omitempty"`
 }
 
 // SolanaSimulatedInstruction mirrors intermediate.rs SolanaSimulatedInstruction.
@@ -211,6 +224,18 @@ type SolanaRpcParsedInstructionDataIo struct {
 	ParsedJSON string `json:"parsedJson"`
 }
 
+// SolanaJSONParsedInstructionDataIo mirrors intermediate.rs
+// SolanaJsonParsedInstructionDataIo: a top-level instruction decoded by
+// Solana's own jsonParsed decoder, run by the parser. Its fields match
+// SolanaRpcParsedInstructionDataIo's, so one converts to the other directly.
+type SolanaJSONParsedInstructionDataIo struct {
+	// Program is the decoder's program name, e.g. "system", "spl-token".
+	Program string `json:"program"`
+	// ParsedJSON is canonical JSON: {"info":..,"type":..} for a typed
+	// instruction, a bare JSON string for SPL Memo.
+	ParsedJSON string `json:"parsedJson"`
+}
+
 // SolanaIdlDataOrAccountsError mirrors the payload shape shared by
 // intermediate.rs SolanaIdlParseError's DataParseError and AccountsMapError
 // struct variants.
@@ -263,14 +288,20 @@ func (e *SolanaIdlParseError) isZero() bool {
 // this client mirrors, so a parser-side layout change surfaces as an explicit
 // error rather than a silently misdecoded struct.
 func DecodeSolanaIntermediateOutput(b []byte) (*SolanaIntermediateOutput, error) {
+	// Gate on schema_version (the leading u16, little-endian) before decoding
+	// the rest: another version's layout would otherwise fail mid-decode with
+	// a byte-level error, or decode into the wrong fields, instead of this one.
+	if len(b) < 2 {
+		return nil, fmt.Errorf("solana intermediate output too short for schema_version: %d bytes", len(b))
+	}
+	if v := binary.LittleEndian.Uint16(b); v != SolanaIntermediateSchemaVersion {
+		return nil, fmt.Errorf(
+			"unsupported solana intermediate output schema_version %d (this client supports %d)",
+			v, SolanaIntermediateSchemaVersion)
+	}
 	var out SolanaIntermediateOutput
 	if err := borsh.Deserialize(&out, b); err != nil {
 		return nil, fmt.Errorf("borsh-decode solana intermediate output: %w", err)
-	}
-	if out.SchemaVersion != SolanaIntermediateSchemaVersion {
-		return nil, fmt.Errorf(
-			"unsupported solana intermediate output schema_version %d (this client supports %d)",
-			out.SchemaVersion, SolanaIntermediateSchemaVersion)
 	}
 	normalizeOptionals(&out)
 	return &out, nil
@@ -299,6 +330,11 @@ func normalizeOptionals(out *SolanaIntermediateOutput) {
 		if e != nil && e.isZero() {
 			out.Instructions[i].IdlParseError = nil
 		}
+		j := out.Instructions[i].SolanaJSONParsedData
+		if j != nil && j.isZero() {
+			out.Instructions[i].SolanaJSONParsedData = nil
+		}
+		out.Instructions[i].SolanaJSONParseError = nilIfEmpty(out.Instructions[i].SolanaJSONParseError)
 	}
 	for i := range out.SimulatedInstructions {
 		p := out.SimulatedInstructions[i].ParsedInstructionData
@@ -333,6 +369,12 @@ func (p *SolanaParsedInstructionDataIo) isZero() bool {
 // zero value — the shape borsh-go produces for an Option::None.
 func (r *SolanaRpcParsedInstructionDataIo) isZero() bool {
 	return r.Program == "" && r.ParsedJSON == ""
+}
+
+// isZero reports whether every field of the jsonParsed instruction data is the
+// zero value — the shape borsh-go produces for an Option::None.
+func (j *SolanaJSONParsedInstructionDataIo) isZero() bool {
+	return j.Program == "" && j.ParsedJSON == ""
 }
 
 func nilIfEmpty(s *string) *string {
