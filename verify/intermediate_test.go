@@ -91,8 +91,8 @@ func TestComputeBorshParsedTransactionPayloadHash_IntermediateCrosscheck(t *test
 
 // TestDecodeSolanaIntermediateOutput_SimulatedInstructions guards against
 // SolanaSimulatedInstruction field-order drift vs the Rust struct. The
-// fixture is a real mainnet Kamino Lend leveraged deposit-and-borrow
-// transaction (15 inner CPIs into KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD,
+// fixture is a real mainnet Kamino Vault transaction (18 simulated inner
+// instructions, including CPIs into KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD
 // decoded via the in-crate Kamino preset IDL merged into idl_records --
 // RegisteredSource::Preset, IdlSource "Preset").
 func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
@@ -104,19 +104,19 @@ func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
 
 	out, err := DecodeSolanaIntermediateOutput(raw)
 	require.NoError(t, err)
-	require.Len(t, out.SimulatedInstructions, 15)
+	require.Len(t, out.SimulatedInstructions, 18)
 
 	sim := out.SimulatedInstructions[0]
 	require.EqualValues(t, 2, sim.Index)
 	require.EqualValues(t, 2, sim.StackHeight)
 	require.Equal(t, "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD", sim.ProgramKey)
-	require.Equal(t, "fb0ae74c1b0b9f600000", sim.InstructionDataHex)
+	require.Equal(t, "906e1a67a2ccfc9301", sim.InstructionDataHex)
 	require.Equal(t, RegisteredSourcePreset, sim.RegisteredSource)
-	require.Len(t, sim.Accounts, 9)
-	require.Equal(t, "5HU4jpN65F7AGXYa6otSQ5yEYiroxcCk9DimpTroGvbF", sim.Accounts[0])
+	require.Len(t, sim.Accounts, 8)
+	require.Equal(t, "FSMWJh3geL7dgeMauFWkjCpU2pvXocGpXcUpVsMQULki", sim.Accounts[0])
 	require.Nil(t, sim.IdlParseError)
 	require.NotNil(t, sim.ParsedInstructionData)
-	require.Equal(t, "initObligation", sim.ParsedInstructionData.InstructionName)
+	require.Equal(t, "refreshReservesBatch", sim.ParsedInstructionData.InstructionName)
 	require.Equal(t, "Preset", sim.ParsedInstructionData.IdlSource)
 }
 
