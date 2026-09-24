@@ -2,6 +2,7 @@ package verify
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 
@@ -90,8 +91,8 @@ func TestComputeBorshParsedTransactionPayloadHash_IntermediateCrosscheck(t *test
 
 // TestDecodeSolanaIntermediateOutput_SimulatedInstructions guards against
 // SolanaSimulatedInstruction field-order drift vs the Rust struct. The
-// fixture is a real mainnet Kamino Lend leveraged deposit-and-borrow
-// transaction (15 inner CPIs into KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD,
+// fixture is a real mainnet Kamino Vault transaction (18 simulated inner
+// instructions, including CPIs into KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD
 // decoded via the in-crate Kamino preset IDL merged into idl_records --
 // RegisteredSource::Preset, IdlSource "Preset").
 func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
@@ -103,19 +104,19 @@ func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
 
 	out, err := DecodeSolanaIntermediateOutput(raw)
 	require.NoError(t, err)
-	require.Len(t, out.SimulatedInstructions, 15)
+	require.Len(t, out.SimulatedInstructions, 18)
 
 	sim := out.SimulatedInstructions[0]
 	require.EqualValues(t, 2, sim.Index)
 	require.EqualValues(t, 2, sim.StackHeight)
 	require.Equal(t, "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD", sim.ProgramKey)
-	require.Equal(t, "fb0ae74c1b0b9f600000", sim.InstructionDataHex)
+	require.Equal(t, "906e1a67a2ccfc9301", sim.InstructionDataHex)
 	require.Equal(t, RegisteredSourcePreset, sim.RegisteredSource)
-	require.Len(t, sim.Accounts, 9)
-	require.Equal(t, "5HU4jpN65F7AGXYa6otSQ5yEYiroxcCk9DimpTroGvbF", sim.Accounts[0])
+	require.Len(t, sim.Accounts, 8)
+	require.Equal(t, "FSMWJh3geL7dgeMauFWkjCpU2pvXocGpXcUpVsMQULki", sim.Accounts[0])
 	require.Nil(t, sim.IdlParseError)
 	require.NotNil(t, sim.ParsedInstructionData)
-	require.Equal(t, "initObligation", sim.ParsedInstructionData.InstructionName)
+	require.Equal(t, "refreshReservesBatch", sim.ParsedInstructionData.InstructionName)
 	require.Equal(t, "Preset", sim.ParsedInstructionData.IdlSource)
 }
 
@@ -172,4 +173,65 @@ func TestDecodeSolanaIntermediateOutput_SchemaGuard(t *testing.T) {
 	_, err = DecodeSolanaIntermediateOutput(raw)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported solana intermediate output schema_version")
+
+	// Another version's bytes need not decode under this layout at all; the
+	// version must still be what's reported, not a byte-level Borsh error.
+	_, err = DecodeSolanaIntermediateOutput([]byte{2, 0})
+	require.ErrorContains(t, err, "unsupported solana intermediate output schema_version 2")
+
+	_, err = DecodeSolanaIntermediateOutput([]byte{3})
+	require.ErrorContains(t, err, "too short for schema_version")
+}
+
+// TestDecodeSolanaIntermediateOutput_SolanaJSONParsed decodes real v3 parser
+// output (testdata/solana_intermediate_json_parsed_sample.json) for a Compute
+// Budget instruction plus a System transfer. The two v3 fields follow
+// RegisteredSource, so a wrong field order would shift the bytes and fail.
+func TestDecodeSolanaIntermediateOutput_SolanaJSONParsed(t *testing.T) {
+	var s struct {
+		IntermediateOutputHex string `json:"intermediateOutputHex"`
+	}
+	require.NoError(t, json.Unmarshal(testdata.SolanaIntermediateJSONParsedSampleJSON, &s))
+	raw, err := hex.DecodeString(s.IntermediateOutputHex)
+	require.NoError(t, err)
+
+	out, err := DecodeSolanaIntermediateOutput(raw)
+	require.NoError(t, err)
+	require.Len(t, out.Instructions, 2)
+
+	computeBudget := out.Instructions[0]
+	require.Equal(t, "ComputeBudget111111111111111111111111111111", computeBudget.ProgramKey)
+	require.Equal(t, RegisteredSourceNative, computeBudget.RegisteredSource)
+	require.Nil(t, computeBudget.SolanaJSONParsedData, "None normalizes to nil")
+	require.NotNil(t, computeBudget.SolanaJSONParseError)
+	require.Equal(t, "program not supported by Solana's jsonParsed decoder", *computeBudget.SolanaJSONParseError)
+
+	transfer := out.Instructions[1]
+	require.Equal(t, "11111111111111111111111111111111", transfer.ProgramKey)
+	require.Nil(t, transfer.SolanaJSONParseError, "None normalizes to nil")
+	require.Equal(t, &SolanaJSONParsedInstructionDataIo{
+		Program: "system",
+		ParsedJSON: `{"info":{"destination":"8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR","lamports":1001,` +
+			`"source":"4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"},"type":"transfer"}`,
+	}, transfer.SolanaJSONParsedData)
+	require.Len(t, out.Transfers, 1)
+	require.Equal(t, "1001", out.Transfers[0].Amount)
+}
+
+// TestDecodeSolanaIntermediateOutput_SolanaJSONParsedRoundTrip covers the
+// case the real sample doesn't: an instruction with neither v3 field set.
+func TestDecodeSolanaIntermediateOutput_SolanaJSONParsedRoundTrip(t *testing.T) {
+	in := SolanaIntermediateOutput{
+		SchemaVersion: SolanaIntermediateSchemaVersion,
+		Instructions: []SolanaIntermediateInstruction{
+			{ProgramKey: "dapp", RegisteredSource: RegisteredSourceUnregistered},
+		},
+	}
+	raw, err := borsh.Serialize(in)
+	require.NoError(t, err)
+
+	out, err := DecodeSolanaIntermediateOutput(raw)
+	require.NoError(t, err)
+	require.Nil(t, out.Instructions[0].SolanaJSONParsedData)
+	require.Nil(t, out.Instructions[0].SolanaJSONParseError)
 }

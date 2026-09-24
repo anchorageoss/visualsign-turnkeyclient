@@ -21,13 +21,20 @@ var AttestationBase64 []byte
 //go:embed solana_intermediate_sample.json
 var SolanaIntermediateSampleJSON []byte
 
-// SolanaIntermediateSimulatedSampleJSON captures a real mainnet Kamino Lend
-// leveraged deposit-and-borrow transaction with a caller-supplied
-// simulateTransactionResult (15 simulated inner instructions, a mix of
-// Preset/Native/Unregistered RegisteredSource).
+// SolanaIntermediateSimulatedSampleJSON captures a real mainnet Kamino Vault
+// transaction with its simulateTransaction result (18 simulated inner
+// instructions, a mix of Preset and Native RegisteredSource).
 //
 //go:embed solana_intermediate_simulated_sample.json
 var SolanaIntermediateSimulatedSampleJSON []byte
+
+// SolanaIntermediateJSONParsedSampleJSON is real parser_cli v3 output for a
+// Compute Budget instruction plus a System transfer: the first carries
+// SolanaJSONParseError, the second SolanaJSONParsedData. Unsigned; it pins the
+// decode layout only.
+//
+//go:embed solana_intermediate_json_parsed_sample.json
+var SolanaIntermediateJSONParsedSampleJSON []byte
 
 // SolanaIntermediateGatewayResponseJSON is the full Turnkey-shaped response the
 // local parser gateway returned for SolanaIntermediateUnsignedPayload with
