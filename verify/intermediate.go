@@ -226,8 +226,7 @@ type SolanaRpcParsedInstructionDataIo struct {
 
 // SolanaJSONParsedInstructionDataIo mirrors intermediate.rs
 // SolanaJsonParsedInstructionDataIo: a top-level instruction decoded by
-// Solana's own jsonParsed decoder, run by the parser. Its fields match
-// SolanaRpcParsedInstructionDataIo's, so one converts to the other directly.
+// Solana's own jsonParsed decoder, run by the parser.
 type SolanaJSONParsedInstructionDataIo struct {
 	// Program is the decoder's program name, e.g. "system", "spl-token".
 	Program string `json:"program"`
