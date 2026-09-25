@@ -101,6 +101,52 @@ type ABIValue struct {
 	ImplementationAddress *string `json:"implementationAddress,omitempty"`
 }
 
+// SignatureMetadata is the parser proto's own name for the shape ABISignature
+// mirrors: a signature value plus key-value metadata naming its algorithm and
+// public key. An alias rather than a second type, because the proto reuses one
+// message for ABIs, IDLs and token metadata alike, and so should this.
+type SignatureMetadata = ABISignature
+
+// TokenOriginChain selects which curator identity and curve a
+// TokenMetadataEntry signature is checked against. It is dispatched by the
+// origin chain of the underlying bridged asset rather than by NEAR: an
+// Ethereum-origin asset verifies with secp256k1, a Solana-origin one with
+// ed25519, and a NEAR-native one with ed25519 under a distinct identity.
+type TokenOriginChain string
+
+const (
+	// TokenOriginChainUnspecified is the proto default. The parser treats it as Near.
+	TokenOriginChainUnspecified TokenOriginChain = "TOKEN_ORIGIN_CHAIN_UNSPECIFIED"
+	TokenOriginChainNear        TokenOriginChain = "TOKEN_ORIGIN_CHAIN_NEAR"
+	TokenOriginChainEthereum    TokenOriginChain = "TOKEN_ORIGIN_CHAIN_ETHEREUM"
+	TokenOriginChainSolana      TokenOriginChain = "TOKEN_ORIGIN_CHAIN_SOLANA"
+)
+
+// TokenMetadataEntry supplies the symbol and decimals for one NEAR Intents
+// asset, so an amount renders as "1 wNEAR" rather than as base units against a
+// bare asset id.
+//
+// Value is signed verbatim as supplied, mirroring ABIValue.Value: the signature
+// covers exactly these bytes, not a re-derived encoding. An entry the parser
+// cannot attribute to an enrolled signer renders with a caveat rather than
+// being trusted silently.
+type TokenMetadataEntry struct {
+	Value     string             `json:"value"`
+	Signature *SignatureMetadata `json:"signature,omitempty"`
+	// OriginChain is nil when the field is omitted (proto None); the parser
+	// treats an absent origin as Near.
+	OriginChain *TokenOriginChain `json:"originChain,omitempty"`
+}
+
+// NearChainMetadata carries optional per-request data for NEAR parse requests.
+// TokenMappings is keyed by NEAR Intents asset id (e.g. "nep141:wrap.near"),
+// letting a caller supply metadata for assets the parser's compiled-in seed
+// table does not cover.
+type NearChainMetadata struct {
+	NetworkID     *string                       `json:"networkId,omitempty"`
+	TokenMappings map[string]TokenMetadataEntry `json:"tokenMappings,omitempty"`
+}
+
 // EthereumChainMetadata carries optional ABI mappings for Ethereum parse requests.
 // ABIMappings maps 0x-prefixed contract address to its ABI JSON.
 type EthereumChainMetadata struct {
@@ -132,21 +178,49 @@ type SolanaChainMetadata struct {
 type RequestChainMetadata struct {
 	Ethereum *EthereumChainMetadata `json:"-"`
 	Solana   *SolanaChainMetadata   `json:"-"`
+	Near     *NearChainMetadata     `json:"-"`
+}
+
+// setVariants names the variants that are set, in declaration order. Exactly
+// one must be, and reporting which were found makes a caller's mistake legible
+// in the error rather than only saying the count was wrong.
+func (m RequestChainMetadata) setVariants() []string {
+	var set []string
+	if m.Ethereum != nil {
+		set = append(set, "Ethereum")
+	}
+	if m.Solana != nil {
+		set = append(set, "Solana")
+	}
+	if m.Near != nil {
+		set = append(set, "Near")
+	}
+	return set
 }
 
 // MarshalJSON flattens RequestChainMetadata into the gateway's internally-tagged
-// shape: {"chain": "CHAIN_SOLANA", ...SolanaChainMetadata fields...}. Exactly one
-// of Ethereum/Solana must be set.
+// shape: {"chain": "CHAIN_SOLANA", ...SolanaChainMetadata fields...}. Exactly
+// one variant must be set.
 func (m RequestChainMetadata) MarshalJSON() ([]byte, error) {
+	if set := m.setVariants(); len(set) != 1 {
+		return nil, fmt.Errorf(
+			"RequestChainMetadata: exactly one variant must be set, got %d %v", len(set), set)
+	}
 	switch {
-	case m.Ethereum != nil && m.Solana != nil:
-		return nil, fmt.Errorf("RequestChainMetadata: exactly one of Ethereum or Solana must be set, got both")
 	case m.Solana != nil:
 		return marshalTaggedChainMetadata("CHAIN_SOLANA", m.Solana)
 	case m.Ethereum != nil:
 		return marshalTaggedChainMetadata("CHAIN_ETHEREUM", m.Ethereum)
+	case m.Near != nil:
+		return marshalTaggedChainMetadata("CHAIN_NEAR", m.Near)
 	default:
-		return nil, fmt.Errorf("RequestChainMetadata: exactly one of Ethereum or Solana must be set")
+		// Unreachable while setVariants above reports exactly one, and named
+		// rather than folded into the NEAR arm so a variant added to the struct
+		// without a case here errors instead of marshalling as NEAR with a nil
+		// payload -- which marshalTaggedChainMetadata would turn into a panic
+		// on a nil map.
+		return nil, fmt.Errorf(
+			"RequestChainMetadata: exactly one variant is set but none matched; a variant was added without a MarshalJSON case")
 	}
 }
 
@@ -175,6 +249,9 @@ func (m *RequestChainMetadata) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("failed to re-encode chain metadata fields: %w", err)
 	}
 
+	// Every variant is cleared first, so decoding into a reused value cannot
+	// leave a stale variant set alongside the one just read.
+	*m = RequestChainMetadata{}
 	switch {
 	case strings.HasPrefix(chain, "CHAIN_ETHEREUM"):
 		var eth EthereumChainMetadata
@@ -182,14 +259,18 @@ func (m *RequestChainMetadata) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("failed to decode ethereum chain metadata: %w", err)
 		}
 		m.Ethereum = &eth
-		m.Solana = nil
 	case strings.HasPrefix(chain, "CHAIN_SOLANA"):
 		var sol SolanaChainMetadata
 		if err := json.Unmarshal(remaining, &sol); err != nil {
 			return fmt.Errorf("failed to decode solana chain metadata: %w", err)
 		}
 		m.Solana = &sol
-		m.Ethereum = nil
+	case strings.HasPrefix(chain, "CHAIN_NEAR"):
+		var near NearChainMetadata
+		if err := json.Unmarshal(remaining, &near); err != nil {
+			return fmt.Errorf("failed to decode near chain metadata: %w", err)
+		}
+		m.Near = &near
 	default:
 		return fmt.Errorf("RequestChainMetadata: unsupported chain discriminator %q", chain)
 	}

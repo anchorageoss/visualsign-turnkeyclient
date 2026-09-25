@@ -1092,3 +1092,60 @@ func TestVerifyResponse_NilArgs(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "non-nil VerifyResponseRequest")
 }
+
+// TestVerifyResponse_IntermediateOutputDispatchesOnChain pins which decoder
+// reads the intermediate output. Borsh is not self-describing, so a decoder
+// handed another chain's bytes cannot tell by inspection: NEAR and Solana
+// currently disagree on schema_version and a cross-feed fails closed, but that
+// is a coincidence of their versions rather than a guarantee. Before this
+// dispatch existed the Solana decoder ran unconditionally, so the NEAR decoder
+// had no caller at all and a NEAR verify with intermediate output always failed.
+func TestVerifyResponse_IntermediateOutputDispatchesOnChain(t *testing.T) {
+	// A NEAR raw-message intermediate output, as the parser emits it.
+	nearBlob, err := hex.DecodeString("01000c0000004e4541525f4d41494e4e455402070000007061796c6f6164")
+	require.NoError(t, err)
+	nearB64 := base64.StdEncoding.EncodeToString(nearBlob)
+
+	// Attestations are extracted before the intermediate output is decoded, so
+	// the response needs both present for the decode to be reached at all.
+	appAttJSON := fmt.Sprintf(`{"message":"%s","publicKey":"%s","signature":"%s"}`,
+		strings.Repeat("cd", 32), strings.Repeat("ab", 33), strings.Repeat("ab", 64))
+	newResponse := func() *api.SignablePayloadResponse {
+		return &api.SignablePayloadResponse{
+			SignablePayload:       "{}",
+			IntermediateOutputB64: nearB64,
+			Attestations: map[api.AttestationType]string{
+				api.AppAttestationKey:  appAttJSON,
+				api.BootAttestationKey: base64.StdEncoding.EncodeToString([]byte("boot-doc")),
+			},
+		}
+	}
+	service := NewService(nil, &mockAttestationVerifier{})
+
+	t.Run("a NEAR chain reaches the NEAR decoder", func(t *testing.T) {
+		_, err := service.VerifyResponse(context.Background(), newResponse(),
+			&VerifyResponseRequest{Chain: "CHAIN_NEAR"})
+		// Verification fails later for want of an attestation; what matters is
+		// that it did not fail at the decode.
+		require.NotContains(t, errString(err), "intermediate output")
+	})
+
+	t.Run("a Solana chain does not silently accept NEAR bytes", func(t *testing.T) {
+		_, err := service.VerifyResponse(context.Background(), newResponse(),
+			&VerifyResponseRequest{Chain: "CHAIN_SOLANA"})
+		require.ErrorContains(t, err, "failed to decode solana intermediate output")
+	})
+
+	t.Run("an unset chain keeps the pre-NEAR behaviour", func(t *testing.T) {
+		_, err := service.VerifyResponse(context.Background(), newResponse(),
+			&VerifyResponseRequest{})
+		require.ErrorContains(t, err, "failed to decode solana intermediate output")
+	})
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}

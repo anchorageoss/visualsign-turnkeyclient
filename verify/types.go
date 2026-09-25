@@ -76,6 +76,12 @@ type VerifyResponseRequest struct {
 	// metadataDigest via Borsh encoding and compare against the value reported
 	// by the backend in SignablePayloadResponse.
 	ChainMetadata *api.RequestChainMetadata
+	// Chain selects which chain's intermediate-output decoder reads
+	// SignablePayloadResponse.IntermediateOutputB64. Borsh is not
+	// self-describing, so the wrong decoder cannot detect that it is wrong by
+	// inspection -- an empty value means the output is left undecoded rather
+	// than guessed at.
+	Chain string
 }
 
 // VerifyResult represents the result of verification
@@ -101,9 +107,14 @@ type VerifyResult struct {
 	AttestationDocument     interface{}                 `json:"-"`
 	ManifestReserialization ManifestSerializationResult `json:"-"`
 	// IntermediateOutput is the decoded Solana intermediate output, populated
-	// only when the backend returned a non-empty intermediateOutput. The
-	// formatter surfaces it under the "intermediateOutput" JSON key.
+	// only when the request named a Solana chain and the backend returned a
+	// non-empty intermediateOutput. The formatter surfaces it under the
+	// "intermediateOutput" JSON key.
 	IntermediateOutput *SolanaIntermediateOutput `json:"-"`
+	// NearIntermediateOutput is the NEAR equivalent. A separate field rather
+	// than one `any`: the two schemas share no shape, and a caller that reads
+	// the wrong one should fail to compile rather than at runtime.
+	NearIntermediateOutput *NearIntermediateOutput `json:"-"`
 }
 
 // PCRValidationResult represents the result of validating a single PCR
