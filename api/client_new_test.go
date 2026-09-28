@@ -535,10 +535,12 @@ func TestCreateSignablePayload_ChainMetadata(t *testing.T) {
 		chainMeta, ok := reqField["chain_metadata"].(map[string]interface{})
 		require.True(t, ok, "expected 'chain_metadata' in request body")
 
-		require.Equal(t, "CHAIN_ETHEREUM", chainMeta["chain"], "expected 'chain' discriminator inside chain_metadata")
+		require.NotContains(t, chainMeta, "chain", "Turnkey's gateway drops the tagged shape")
+		eth, ok := chainMeta["ethereum"].(map[string]interface{})
+		require.True(t, ok, "expected protojson oneof key 'ethereum' inside chain_metadata")
 
-		abiMappings, ok := chainMeta["abiMappings"].(map[string]interface{})
-		require.True(t, ok, "expected 'abiMappings' flattened inside chain_metadata")
+		abiMappings, ok := eth["abiMappings"].(map[string]interface{})
+		require.True(t, ok, "expected 'abiMappings' inside chain_metadata.ethereum")
 		require.Contains(t, abiMappings, "0xContractAddr")
 	})
 
