@@ -8,7 +8,7 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 ## [Unreleased]
 
 ### Added
-- NEAR support in `verify`: `--chain CHAIN_NEAR` selects the NEAR decoder for `--include-intermediate-output`, and `--chain-metadata` accepts a `CHAIN_NEAR` variant carrying signed per-asset token mappings keyed by NEAR Intents asset id
+- NEAR support in `verify`: `--chain CHAIN_NEAR` selects the NEAR decoder for `--include-intermediate-output`, and `--chain-metadata` accepts a `near` variant carrying signed per-asset token mappings keyed by NEAR Intents asset id
 - QOS JSON (v2) manifest envelope parsing, alongside the existing Borsh envelope: format is auto-detected (no `--api-version` change required), hashed via QOS canonical JSON per the [qos_json spec](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md), and rejects duplicate keys, unknown fields, and non-`"v2"` versions
 
 ### Changed
