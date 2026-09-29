@@ -83,6 +83,7 @@ func TestVerifyEndToEnd_IntermediateOutputAgainstGatewayResponse(t *testing.T) {
 	service := NewService(client, mockVerifier)
 	result, err := service.VerifyResponse(context.Background(), resp, &VerifyResponseRequest{
 		UnsignedPayload: unsignedPayload,
+		Chain:           "CHAIN_SOLANA",
 	})
 	require.NoError(t, err)
 	require.True(t, result.Valid)

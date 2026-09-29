@@ -123,8 +123,51 @@ func TestRequestChainMetadata_JSONRoundTrip(t *testing.T) {
 
 	t.Run("unmarshal rejects unknown chain discriminator", func(t *testing.T) {
 		var m RequestChainMetadata
-		err := json.Unmarshal([]byte(`{"chain":"CHAIN_NEAR"}`), &m)
+		err := json.Unmarshal([]byte(`{"chain":"CHAIN_DOGECOIN"}`), &m)
 		require.Error(t, err)
+	})
+
+	t.Run("unmarshal rejects a discriminator that merely shares a chain's prefix", func(t *testing.T) {
+		var m RequestChainMetadata
+		err := json.Unmarshal([]byte(`{"chain":"CHAIN_NEARLY"}`), &m)
+		require.Error(t, err, "chain matching must be exact, not a prefix match")
+	})
+
+	t.Run("near", func(t *testing.T) {
+		original := RequestChainMetadata{
+			Near: &NearChainMetadata{
+				NetworkID: strPtr("NEAR_MAINNET"),
+				TokenMappings: map[string]TokenMetadataEntry{
+					"nep141:wrap.near": {
+						Value:       `{"symbol":"wNEAR","decimals":24}`,
+						OriginChain: originChainPtr(TokenOriginChainNear),
+					},
+				},
+			},
+		}
+
+		b, err := json.Marshal(original)
+		require.NoError(t, err)
+
+		// protojson oneof shape: Turnkey's hosted gateway drops the tagged one.
+		require.JSONEq(t, `{"near":{"networkId":"NEAR_MAINNET","tokenMappings":{"nep141:wrap.near":{"value":"{\"symbol\":\"wNEAR\",\"decimals\":24}","originChain":"TOKEN_ORIGIN_CHAIN_NEAR"}}}}`, string(b))
+
+		var back RequestChainMetadata
+		require.NoError(t, json.Unmarshal(b, &back))
+		require.Equal(t, original, back)
+	})
+
+	t.Run("unmarshal still accepts tagged near", func(t *testing.T) {
+		var m RequestChainMetadata
+		require.NoError(t, json.Unmarshal([]byte(`{"chain":"CHAIN_NEAR","networkId":"NEAR_MAINNET"}`), &m))
+		require.Equal(t, "NEAR_MAINNET", *m.Near.NetworkID)
+	})
+
+	t.Run("unmarshal clears a variant left over from a previous decode", func(t *testing.T) {
+		m := RequestChainMetadata{Ethereum: &EthereumChainMetadata{}}
+		require.NoError(t, json.Unmarshal([]byte(`{"chain":"CHAIN_NEAR"}`), &m))
+		require.Nil(t, m.Ethereum, "a stale variant would make the value ambiguous")
+		require.NotNil(t, m.Near)
 	})
 
 	t.Run("marshal rejects both variants set", func(t *testing.T) {

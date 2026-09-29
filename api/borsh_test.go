@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -238,4 +239,109 @@ func TestBorshBytes_NilReceiver(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte{0x00}, bytes,
 		"nil receiver must Borsh-encode as ChainMetadata{metadata: None} ([0x00])")
+}
+
+func originChainPtr(c TokenOriginChain) *TokenOriginChain { return &c }
+
+// nearFixture is the input the Rust ground-truth test builds. Kept beside the
+// expected bytes so the two cannot drift apart silently.
+func nearFixture() *RequestChainMetadata {
+	return &RequestChainMetadata{
+		Near: &NearChainMetadata{
+			NetworkID: strPtr("NEAR_TESTNET"),
+			TokenMappings: map[string]TokenMetadataEntry{
+				// Declared out of key order: Rust's BTreeMap encodes ascending,
+				// and reproducing that with an explicit sort is what is pinned.
+				"nep141:zzz.near": {
+					Value: `{"symbol":"ZZZ","decimals":8}`,
+				},
+				"nep141:wrap.near": {
+					Value: `{"symbol":"wNEAR","decimals":24}`,
+					Signature: NewABISignature(
+						"deadbeef", "ed25519", "abc123",
+					),
+					OriginChain: originChainPtr(TokenOriginChainEthereum),
+				},
+			},
+		},
+	}
+}
+
+// TestBorshBytes_NearFixture pins the Go encoding against bytes produced by the
+// Rust parser's own generated types, not against a digest this package computed
+// for itself. Bytes rather than a digest because a mismatch then says where the
+// encodings diverge instead of only that they did.
+//
+// To regenerate after a schema change: in visualsign-parser, run the test at
+// src/generated/tests/near_metadata_borsh_truth.rs, which prints
+// hex(borsh::to_vec(&ChainMetadata{..})) for these same two inputs.
+func TestBorshBytes_NearFixture(t *testing.T) {
+	t.Run("network only", func(t *testing.T) {
+		meta := &RequestChainMetadata{
+			Near: &NearChainMetadata{NetworkID: strPtr("NEAR_MAINNET")},
+		}
+		b, err := meta.BorshBytes()
+		require.NoError(t, err)
+		require.Equal(t, "0102010c0000004e4541525f4d41494e4e455400000000", hex.EncodeToString(b),
+			"Borsh encoding diverged from the Rust parser")
+	})
+
+	t.Run("token mappings, sorted and signed", func(t *testing.T) {
+		b, err := nearFixture().BorshBytes()
+		require.NoError(t, err)
+		require.Equal(t,
+			"0102010c0000004e4541525f544553544e455402000000100000006e65703134313a777261702e6e656172"+
+				"200000007b2273796d626f6c223a22774e454152222c22646563696d616c73223a32347d0108000000"+
+				"64656164626565660200000009000000616c676f726974686d07000000656432353531390a00000070"+
+				"75626c69635f6b65790600000061626331323301020000000f0000006e65703134313a7a7a7a2e6e65"+
+				"61721d0000007b2273796d626f6c223a225a5a5a222c22646563696d616c73223a387d0000",
+			hex.EncodeToString(b),
+			"Borsh encoding diverged from the Rust parser")
+	})
+}
+
+// TestBorshBytes_NearIsDeterministicAcrossMapOrder guards the one hazard Go's
+// randomized map iteration introduces: the same mappings must encode identically
+// every time, or the digest a verifier recomputes would not be reproducible.
+func TestBorshBytes_NearIsDeterministicAcrossMapOrder(t *testing.T) {
+	first, err := nearFixture().BorshBytes()
+	require.NoError(t, err)
+	for range 32 {
+		again, err := nearFixture().BorshBytes()
+		require.NoError(t, err)
+		require.Equal(t, first, again, "token_mappings must encode in ascending key order every time")
+	}
+}
+
+// TestBorshBytes_NearRejectsAnUnknownOriginChain asserts the posture
+// toBorshAbiType already takes: an unrecognized enum value fails the call
+// rather than encoding a number the parser would not agree with.
+func TestBorshBytes_NearRejectsAnUnknownOriginChain(t *testing.T) {
+	meta := &RequestChainMetadata{
+		Near: &NearChainMetadata{
+			TokenMappings: map[string]TokenMetadataEntry{
+				"nep141:wrap.near": {
+					Value:       `{"symbol":"wNEAR","decimals":24}`,
+					OriginChain: originChainPtr("TOKEN_ORIGIN_CHAIN_MOON"),
+				},
+			},
+		},
+	}
+	_, err := meta.BorshBytes()
+	require.ErrorContains(t, err, "unknown origin_chain")
+	require.ErrorContains(t, err, "nep141:wrap.near", "the error must name the entry at fault")
+}
+
+// TestBorshBytes_RejectsMoreThanOneVariant covers the three-variant form of the
+// invariant: a value with two variants set has no single chain discriminator,
+// so it must fail rather than silently encode whichever the switch reaches first.
+func TestBorshBytes_RejectsMoreThanOneVariant(t *testing.T) {
+	meta := &RequestChainMetadata{
+		Ethereum: &EthereumChainMetadata{},
+		Near:     &NearChainMetadata{},
+	}
+	_, err := meta.BorshBytes()
+	require.ErrorContains(t, err, "exactly one variant")
+	require.ErrorContains(t, err, "Ethereum")
+	require.ErrorContains(t, err, "Near")
 }

@@ -21,6 +21,10 @@ const ethereumVariant = borsh.Enum(0)
 // Matches the Rust enum's default discriminant (use_discriminant=true, second variant = 1).
 const solanaVariant = borsh.Enum(1)
 
+// nearVariant is the Borsh discriminant for chain_metadata::Metadata::Near.
+// Matches the Rust enum's default discriminant (use_discriminant=true, third variant = 2).
+const nearVariant = borsh.Enum(2)
+
 // borshChainMetadata mirrors parser.rs ChainMetadata.
 type borshChainMetadata struct {
 	Metadata *borshMetadataEnum // Option<chain_metadata::Metadata>
@@ -32,6 +36,7 @@ type borshMetadataEnum struct {
 	Enum     borsh.Enum            `borsh_enum:"true"`
 	Ethereum borshEthereumMetadata // variant 0
 	Solana   borshSolanaMetadata   // variant 1
+	Near     borshNearMetadata     // variant 2
 }
 
 // borshEthereumMetadata mirrors parser.rs EthereumMetadata.
@@ -120,6 +125,59 @@ type borshIdlMappingEntry struct {
 	Idl       borshIdl
 }
 
+// borshNearMetadata mirrors parser.rs NearMetadata in Rust declaration order.
+//
+// TokenMappings is Rust's BTreeMap<String, TokenMetadataEntry>, which Borsh
+// encodes as `u32 length || pairs in ascending key order`. Go map iteration is
+// randomized, so the sort is materialized explicitly here: an unsorted encoding
+// would produce a different digest for the same input on different runs.
+type borshNearMetadata struct {
+	NetworkID     *string                  // Option<String>
+	TokenMappings []borshTokenMappingEntry // BTreeMap<String, TokenMetadataEntry> — sorted by AssetID
+}
+
+// borshTokenMappingEntry is one (asset_id, TokenMetadataEntry) pair in
+// TokenMappings. The field order (AssetID then Entry) must match Rust's map
+// entry layout.
+type borshTokenMappingEntry struct {
+	AssetID string
+	Entry   borshTokenMetadataEntry
+}
+
+// borshTokenMetadataEntry mirrors parser.rs TokenMetadataEntry. Field order
+// matches the proto tag order (value, signature, origin_chain), which is the
+// Rust struct declaration order Borsh serializes in.
+type borshTokenMetadataEntry struct {
+	Value       string                  // String
+	Signature   *borshSignatureMetadata // Option<SignatureMetadata>
+	OriginChain *int32                  // Option<i32> — proto enum number (prost enumeration)
+}
+
+// tokenOriginChainBorshNumber maps the wire string form of TokenOriginChain to
+// the proto enum number Borsh hashes. The parser sends the string over JSON but
+// stores the enum as i32, so the digest is computed over these numbers — the
+// same split abiTypeBorshNumber handles for AbiType.
+var tokenOriginChainBorshNumber = map[TokenOriginChain]int32{
+	TokenOriginChainUnspecified: 0,
+	TokenOriginChainNear:        1,
+	TokenOriginChainEthereum:    2,
+	TokenOriginChainSolana:      3,
+}
+
+// toBorshTokenOriginChain converts an optional TokenOriginChain to its Borsh
+// Option<i32> form. nil maps to None. An unrecognized value is an error: a
+// wrong digest is worse than a failed call.
+func toBorshTokenOriginChain(c *TokenOriginChain) (*int32, error) {
+	if c == nil {
+		return nil, nil
+	}
+	n, ok := tokenOriginChainBorshNumber[*c]
+	if !ok {
+		return nil, fmt.Errorf("unknown origin_chain %q", *c)
+	}
+	return &n, nil
+}
+
 func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
 	if s == nil {
 		return nil
@@ -135,8 +193,8 @@ func toBorshSignature(s *ABISignature) *borshSignatureMetadata {
 // visualsign-parser hashes for metadata_digest. hex.EncodeToString of
 // SHA256 over these bytes equals MetadataDigestHex(). These bytes let a
 // verifier recompute the digest off-chain. Returns the Borsh encoding of
-// ChainMetadata{metadata: None} ([]byte{0x00}) when r is nil, or when
-// neither r.Ethereum nor r.Solana is set.
+// ChainMetadata{metadata: None} ([]byte{0x00}) when r is nil, or when no
+// variant is set.
 func (r *RequestChainMetadata) BorshBytes() ([]byte, error) {
 	cm, err := r.toBorshChainMetadata()
 	if err != nil {
@@ -163,13 +221,17 @@ func (r *RequestChainMetadata) toBorshChainMetadata() (borshChainMetadata, error
 	if r == nil {
 		return borshChainMetadata{Metadata: nil}, nil
 	}
+	if set := r.setVariants(); len(set) > 1 {
+		return borshChainMetadata{}, fmt.Errorf(
+			"RequestChainMetadata: exactly one variant must be set, got %d %v", len(set), set)
+	}
 	switch {
-	case r.Ethereum != nil && r.Solana != nil:
-		return borshChainMetadata{}, fmt.Errorf("RequestChainMetadata: exactly one of Ethereum or Solana must be set, got both")
 	case r.Ethereum != nil:
 		return r.toBorshChainMetadataEthereum()
 	case r.Solana != nil:
 		return r.toBorshChainMetadataSolana()
+	case r.Near != nil:
+		return r.toBorshChainMetadataNear()
 	default:
 		return borshChainMetadata{Metadata: nil}, nil
 	}
@@ -221,6 +283,37 @@ func (r *RequestChainMetadata) toBorshChainMetadataSolana() (borshChainMetadata,
 				// TODO: pass real entries once SolanaChainMetadata exposes IdlMappings.
 				IdlMappings:                sortIdlMappings(nil),
 				SimulatedTransactionResult: rawJSON,
+			},
+		},
+	}, nil
+}
+
+func (r *RequestChainMetadata) toBorshChainMetadataNear() (borshChainMetadata, error) {
+	near := r.Near
+	entries := make([]borshTokenMappingEntry, 0, len(near.TokenMappings))
+	for assetID, token := range near.TokenMappings {
+		originChain, err := toBorshTokenOriginChain(token.OriginChain)
+		if err != nil {
+			return borshChainMetadata{}, fmt.Errorf("token_mappings[%q]: %w", assetID, err)
+		}
+		entries = append(entries, borshTokenMappingEntry{
+			AssetID: assetID,
+			Entry: borshTokenMetadataEntry{
+				Value:       token.Value,
+				Signature:   toBorshSignature(token.Signature),
+				OriginChain: originChain,
+			},
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].AssetID < entries[j].AssetID
+	})
+	return borshChainMetadata{
+		Metadata: &borshMetadataEnum{
+			Enum: nearVariant,
+			Near: borshNearMetadata{
+				NetworkID:     near.NetworkID,
+				TokenMappings: entries,
 			},
 		},
 	}, nil

@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"strings"
 
 	nitroverifier "github.com/anchorageoss/awsnitroverifier"
 	"github.com/anchorageoss/visualsign-turnkeyclient/api"
@@ -64,13 +63,18 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 		chain = "CHAIN_SOLANA" // default to Solana if not specified
 	}
 	if req.ChainMetadata != nil && req.ChainMetadata.Ethereum != nil {
-		if !strings.HasPrefix(chain, "CHAIN_ETHEREUM") {
+		if chain != "CHAIN_ETHEREUM" {
 			return nil, fmt.Errorf("ChainMetadata.Ethereum requires an Ethereum chain, got %q", chain)
 		}
 	}
 	if req.ChainMetadata != nil && req.ChainMetadata.Solana != nil {
-		if !strings.HasPrefix(chain, "CHAIN_SOLANA") {
+		if chain != "CHAIN_SOLANA" {
 			return nil, fmt.Errorf("ChainMetadata.Solana requires a Solana chain, got %q", chain)
+		}
+	}
+	if req.ChainMetadata != nil && req.ChainMetadata.Near != nil {
+		if chain != "CHAIN_NEAR" {
+			return nil, fmt.Errorf("ChainMetadata.Near requires a NEAR chain, got %q", chain)
 		}
 	}
 	apiReq := &api.CreateSignablePayloadRequest{
@@ -91,6 +95,7 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 		PivotBinaryHashHex: req.PivotBinaryHashHex,
 		SaveManifestPath:   req.SaveManifestPath,
 		ChainMetadata:      req.ChainMetadata,
+		Chain:              chain,
 	})
 }
 
@@ -148,11 +153,30 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode intermediate output base64: %w", err)
 		}
-		decoded, err := DecodeSolanaIntermediateOutput(intermediateOutputBytes)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode solana intermediate output: %w", err)
+		// Dispatch on the chain the caller named. Borsh is not self-describing,
+		// so a decoder cannot tell it has been handed another chain's bytes:
+		// today NEAR and Solana differ in schema_version and a cross-feed fails
+		// closed, but that is a coincidence of their current versions, not a
+		// guarantee. Chain is therefore required here rather than guessed at;
+		// an unrecognized (but non-empty) chain still leaves the output
+		// undecoded -- its bytes are still folded into the signed-message
+		// binding below, which is what the signature actually covers.
+		switch req.Chain {
+		case "":
+			return nil, fmt.Errorf("chain must be specified to decode a non-empty intermediate output")
+		case "CHAIN_NEAR":
+			decoded, err := DecodeNearIntermediateOutput(intermediateOutputBytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode near intermediate output: %w", err)
+			}
+			result.NearIntermediateOutput = decoded
+		case "CHAIN_SOLANA":
+			decoded, err := DecodeSolanaIntermediateOutput(intermediateOutputBytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode solana intermediate output: %w", err)
+			}
+			result.IntermediateOutput = decoded
 		}
-		result.IntermediateOutput = decoded
 	}
 
 	// Recompute digests locally to confirm the backend-reported values match
