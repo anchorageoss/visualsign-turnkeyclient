@@ -79,10 +79,9 @@ type VerifyResponseRequest struct {
 	// Chain selects which chain's intermediate-output decoder reads
 	// SignablePayloadResponse.IntermediateOutputB64. Borsh is not
 	// self-describing, so the wrong decoder cannot detect that it is wrong by
-	// inspection -- an unrecognized non-empty value leaves the output
-	// undecoded rather than guessed at. An empty value is the one exception:
-	// it decodes as Solana, matching the pre-NEAR default and Verify's own
-	// default when Chain is unset.
+	// inspection -- required whenever the response carries a non-empty
+	// intermediate output; VerifyResponse errors rather than guessing. An
+	// unrecognized non-empty value still leaves the output undecoded.
 	Chain string
 }
 

@@ -158,20 +158,20 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 		// so a decoder cannot tell it has been handed another chain's bytes:
 		// today NEAR and Solana differ in schema_version and a cross-feed fails
 		// closed, but that is a coincidence of their current versions, not a
-		// guarantee. An unrecognized chain leaves the output undecoded rather
-		// than guessing -- its bytes are still folded into the signed-message
+		// guarantee. Chain is therefore required here rather than guessed at;
+		// an unrecognized (but non-empty) chain still leaves the output
+		// undecoded -- its bytes are still folded into the signed-message
 		// binding below, which is what the signature actually covers.
 		switch {
+		case req.Chain == "":
+			return nil, fmt.Errorf("chain must be specified to decode a non-empty intermediate output")
 		case strings.HasPrefix(req.Chain, "CHAIN_NEAR"):
 			decoded, err := DecodeNearIntermediateOutput(intermediateOutputBytes)
 			if err != nil {
 				return nil, fmt.Errorf("failed to decode near intermediate output: %w", err)
 			}
 			result.NearIntermediateOutput = decoded
-		case req.Chain == "" || strings.HasPrefix(req.Chain, "CHAIN_SOLANA"):
-			// An empty Chain keeps the pre-NEAR behaviour: Solana is what the
-			// backend emitted an intermediate output for before NEAR existed,
-			// and Verify defaults an unset chain to Solana too.
+		case strings.HasPrefix(req.Chain, "CHAIN_SOLANA"):
 			decoded, err := DecodeSolanaIntermediateOutput(intermediateOutputBytes)
 			if err != nil {
 				return nil, fmt.Errorf("failed to decode solana intermediate output: %w", err)

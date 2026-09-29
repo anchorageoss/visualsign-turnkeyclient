@@ -1136,10 +1136,10 @@ func TestVerifyResponse_IntermediateOutputDispatchesOnChain(t *testing.T) {
 		require.ErrorContains(t, err, "failed to decode solana intermediate output")
 	})
 
-	t.Run("an unset chain keeps the pre-NEAR behaviour", func(t *testing.T) {
+	t.Run("an unset chain errors rather than guessing Solana", func(t *testing.T) {
 		_, err := service.VerifyResponse(context.Background(), newResponse(),
 			&VerifyResponseRequest{})
-		require.ErrorContains(t, err, "failed to decode solana intermediate output")
+		require.ErrorContains(t, err, "chain must be specified")
 	})
 }
 
