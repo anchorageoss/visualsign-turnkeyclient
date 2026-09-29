@@ -11,6 +11,7 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 - QOS JSON (v2) manifest envelope parsing, alongside the existing Borsh envelope: format is auto-detected (no `--api-version` change required), hashed via QOS canonical JSON per the [qos_json spec](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md), and rejects duplicate keys, unknown fields, and non-`"v2"` versions
 
 ### Changed
+- **Breaking:** `verify.Verify` now requires `VerifyRequest.Chain` and returns an error when it is empty, instead of silently defaulting to `CHAIN_SOLANA`
 - Use commit-count-based auto-versioning derived from git history
 - Release workflow triggers on push to `main` (auto-creates tags)
 - Version output shows `Version (commit: Hash)`; build date is intentionally not included
