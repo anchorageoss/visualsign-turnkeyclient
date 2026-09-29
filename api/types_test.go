@@ -58,8 +58,8 @@ func TestABIValue_JSONOmitsNilFields(t *testing.T) {
 	require.NotContains(t, m, "signature")
 }
 
-// TestRequestChainMetadata_JSONRoundTrip pins the gateway's internally-tagged
-// wire shape ({"chain": "CHAIN_...", ...fields...}) in both directions.
+// TestRequestChainMetadata_JSONRoundTrip pins the protojson oneof wire shape
+// ({"ethereum": {...}} / {"solana": {...}}) in both directions.
 // UnmarshalJSON exists solely to parse cmd/verify.go's --chain-metadata flag
 // value; without it, a caller-supplied JSON string silently produces an empty
 // RequestChainMetadata (see the "must" review comment on api/types.go).
@@ -78,13 +78,17 @@ func TestRequestChainMetadata_JSONRoundTrip(t *testing.T) {
 		b, err := json.Marshal(original)
 		require.NoError(t, err)
 
-		var m map[string]any
-		require.NoError(t, json.Unmarshal(b, &m))
-		require.Equal(t, "CHAIN_ETHEREUM", m["chain"])
+		require.JSONEq(t, `{"ethereum":{"networkId":"1","abiMappings":{"0xContractAddr":{"value":"[{\"name\":\"transfer\"}]"}}}}`, string(b))
 
 		var back RequestChainMetadata
 		require.NoError(t, json.Unmarshal(b, &back))
 		require.Equal(t, original, back)
+	})
+
+	t.Run("unmarshal still accepts tagged ethereum", func(t *testing.T) {
+		var m RequestChainMetadata
+		require.NoError(t, json.Unmarshal([]byte(`{"chain":"CHAIN_ETHEREUM","networkId":"1"}`), &m))
+		require.Equal(t, "1", *m.Ethereum.NetworkID)
 	})
 
 	t.Run("solana", func(t *testing.T) {
@@ -97,13 +101,18 @@ func TestRequestChainMetadata_JSONRoundTrip(t *testing.T) {
 		b, err := json.Marshal(original)
 		require.NoError(t, err)
 
-		var m map[string]any
-		require.NoError(t, json.Unmarshal(b, &m))
-		require.Equal(t, "CHAIN_SOLANA", m["chain"])
+		// protojson oneof shape: Turnkey's hosted gateway drops the tagged one.
+		require.JSONEq(t, `{"solana":{"simulatedTransactionResult":"cmF3LXNpbXVsYXRlLXRyYW5zYWN0aW9uLWJ5dGVz"}}`, string(b))
 
 		var back RequestChainMetadata
 		require.NoError(t, json.Unmarshal(b, &back))
 		require.Equal(t, original, back)
+	})
+
+	t.Run("unmarshal still accepts tagged solana", func(t *testing.T) {
+		var m RequestChainMetadata
+		require.NoError(t, json.Unmarshal([]byte(`{"chain":"CHAIN_SOLANA","simulatedTransactionResult":"eA=="}`), &m))
+		require.Equal(t, []byte("x"), m.Solana.SimulatedTransactionResult)
 	})
 
 	t.Run("unmarshal rejects missing chain discriminator", func(t *testing.T) {
