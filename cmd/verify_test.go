@@ -19,7 +19,7 @@ func TestVerifyCommand(t *testing.T) {
 	require.Greater(t, len(cmd.Flags), 0)
 
 	// Check for specific required flags
-	var hasHost, hasOrgID, hasKeyName, hasPayload bool
+	var hasHost, hasOrgID, hasKeyName, hasPayload, hasChain bool
 	for _, flag := range cmd.Flags {
 		switch f := flag.(type) {
 		case *cli.StringFlag:
@@ -35,6 +35,11 @@ func TestVerifyCommand(t *testing.T) {
 			if f.Name == "unsigned-payload" {
 				hasPayload = true
 			}
+			if f.Name == "chain" {
+				hasChain = true
+				require.True(t, f.Required, "--chain should be required")
+				require.Empty(t, f.Value, "--chain must not default to a chain, or verify.Verify's required-Chain check is never reached")
+			}
 		}
 	}
 
@@ -42,6 +47,7 @@ func TestVerifyCommand(t *testing.T) {
 	require.True(t, hasOrgID, "Should have --organization-id flag")
 	require.True(t, hasKeyName, "Should have --key-name flag")
 	require.True(t, hasPayload, "Should have --unsigned-payload flag")
+	require.True(t, hasChain, "Should have --chain flag")
 }
 
 func TestMatchedHashLabel(t *testing.T) {

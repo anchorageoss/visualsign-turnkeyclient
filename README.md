@@ -115,7 +115,8 @@ Perform end-to-end verification of a transaction:
   --host https://api.turnkey.com \
   --organization-id <your-org-id> \
   --key-name testkey \
-  --unsigned-payload <base64-encoded-payload>
+  --unsigned-payload <base64-encoded-payload> \
+  --chain CHAIN_SOLANA
 ```
 
 #### Optional Flags
@@ -283,6 +284,7 @@ We validate our Go implementation against Turnkey's reference Rust `qos_client`:
   --organization-id <your-org-id> \
   --key-name testkey \
   --unsigned-payload 'AQAAAAA...' \
+  --chain CHAIN_SOLANA \
   --save-qos-manifest /tmp/manifest.bin
 ```
 
@@ -563,6 +565,7 @@ make build
   --organization-id <your-org-id> \
   --key-name testkey \
   --unsigned-payload '<base64-encoded-payload>' \
+  --chain CHAIN_SOLANA \
   --save-qos-manifest /tmp/manifest.bin
 
 # 2. Decode manifest with our Go client
