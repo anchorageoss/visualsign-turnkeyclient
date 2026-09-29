@@ -127,6 +127,12 @@ func TestRequestChainMetadata_JSONRoundTrip(t *testing.T) {
 		require.Error(t, err)
 	})
 
+	t.Run("unmarshal rejects a discriminator that merely shares a chain's prefix", func(t *testing.T) {
+		var m RequestChainMetadata
+		err := json.Unmarshal([]byte(`{"chain":"CHAIN_NEARLY"}`), &m)
+		require.Error(t, err, "chain matching must be exact, not a prefix match")
+	})
+
 	t.Run("near", func(t *testing.T) {
 		original := RequestChainMetadata{
 			Near: &NearChainMetadata{

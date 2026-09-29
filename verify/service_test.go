@@ -279,6 +279,23 @@ func TestVerifyEthereumMetadataRequiresEthereumChain(t *testing.T) {
 	require.Contains(t, err.Error(), "ChainMetadata.Ethereum requires an Ethereum chain")
 }
 
+// TestVerifyChainMetadataRejectsPrefixConfusedChain ensures chain matching is
+// exact, not a prefix match: a chain that merely starts with "CHAIN_NEAR"
+// (e.g. a typo or a future variant) must not be accepted as NEAR.
+func TestVerifyChainMetadataRejectsPrefixConfusedChain(t *testing.T) {
+	service := NewService(&mockAPIClient{}, &mockAttestationVerifier{})
+	req := &VerifyRequest{
+		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_NEARLY",
+		ChainMetadata: &api.RequestChainMetadata{
+			Near: &api.NearChainMetadata{},
+		},
+	}
+	_, err := service.Verify(context.Background(), req)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ChainMetadata.Near requires a NEAR chain")
+}
+
 // Test Verify - API error
 func TestVerifyAPIError(t *testing.T) {
 	mockAPI := &mockAPIClient{err: fmt.Errorf("API error")}
@@ -1140,6 +1157,13 @@ func TestVerifyResponse_IntermediateOutputDispatchesOnChain(t *testing.T) {
 		_, err := service.VerifyResponse(context.Background(), newResponse(),
 			&VerifyResponseRequest{})
 		require.ErrorContains(t, err, "chain must be specified")
+	})
+
+	t.Run("a chain that merely shares NEAR's prefix does not reach the NEAR decoder", func(t *testing.T) {
+		_, err := service.VerifyResponse(context.Background(), newResponse(),
+			&VerifyResponseRequest{Chain: "CHAIN_NEARLY"})
+		require.NotContains(t, errString(err), "intermediate output",
+			"chain matching must be exact, not a prefix match, so an unrecognized chain leaves the output undecoded rather than either decoder running")
 	})
 }
 

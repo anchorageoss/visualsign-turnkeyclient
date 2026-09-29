@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"strings"
 
 	nitroverifier "github.com/anchorageoss/awsnitroverifier"
 	"github.com/anchorageoss/visualsign-turnkeyclient/api"
@@ -64,17 +63,17 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 		chain = "CHAIN_SOLANA" // default to Solana if not specified
 	}
 	if req.ChainMetadata != nil && req.ChainMetadata.Ethereum != nil {
-		if !strings.HasPrefix(chain, "CHAIN_ETHEREUM") {
+		if chain != "CHAIN_ETHEREUM" {
 			return nil, fmt.Errorf("ChainMetadata.Ethereum requires an Ethereum chain, got %q", chain)
 		}
 	}
 	if req.ChainMetadata != nil && req.ChainMetadata.Solana != nil {
-		if !strings.HasPrefix(chain, "CHAIN_SOLANA") {
+		if chain != "CHAIN_SOLANA" {
 			return nil, fmt.Errorf("ChainMetadata.Solana requires a Solana chain, got %q", chain)
 		}
 	}
 	if req.ChainMetadata != nil && req.ChainMetadata.Near != nil {
-		if !strings.HasPrefix(chain, "CHAIN_NEAR") {
+		if chain != "CHAIN_NEAR" {
 			return nil, fmt.Errorf("ChainMetadata.Near requires a NEAR chain, got %q", chain)
 		}
 	}
@@ -162,16 +161,16 @@ func (s *Service) VerifyResponse(_ context.Context, response *api.SignablePayloa
 		// an unrecognized (but non-empty) chain still leaves the output
 		// undecoded -- its bytes are still folded into the signed-message
 		// binding below, which is what the signature actually covers.
-		switch {
-		case req.Chain == "":
+		switch req.Chain {
+		case "":
 			return nil, fmt.Errorf("chain must be specified to decode a non-empty intermediate output")
-		case strings.HasPrefix(req.Chain, "CHAIN_NEAR"):
+		case "CHAIN_NEAR":
 			decoded, err := DecodeNearIntermediateOutput(intermediateOutputBytes)
 			if err != nil {
 				return nil, fmt.Errorf("failed to decode near intermediate output: %w", err)
 			}
 			result.NearIntermediateOutput = decoded
-		case strings.HasPrefix(req.Chain, "CHAIN_SOLANA"):
+		case "CHAIN_SOLANA":
 			decoded, err := DecodeSolanaIntermediateOutput(intermediateOutputBytes)
 			if err != nil {
 				return nil, fmt.Errorf("failed to decode solana intermediate output: %w", err)

@@ -31,7 +31,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"strings"
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 )
@@ -251,20 +250,20 @@ func (m *RequestChainMetadata) UnmarshalJSON(data []byte) error {
 	// Every variant is cleared first, so decoding into a reused value cannot
 	// leave a stale variant set alongside the one just read.
 	*m = RequestChainMetadata{}
-	switch {
-	case strings.HasPrefix(chain, "CHAIN_ETHEREUM"):
+	switch chain {
+	case "CHAIN_ETHEREUM":
 		var eth EthereumChainMetadata
 		if err := json.Unmarshal(body, &eth); err != nil {
 			return fmt.Errorf("failed to decode ethereum chain metadata: %w", err)
 		}
 		m.Ethereum = &eth
-	case strings.HasPrefix(chain, "CHAIN_SOLANA"):
+	case "CHAIN_SOLANA":
 		var sol SolanaChainMetadata
 		if err := json.Unmarshal(body, &sol); err != nil {
 			return fmt.Errorf("failed to decode solana chain metadata: %w", err)
 		}
 		m.Solana = &sol
-	case strings.HasPrefix(chain, "CHAIN_NEAR"):
+	case "CHAIN_NEAR":
 		var near NearChainMetadata
 		if err := json.Unmarshal(body, &near); err != nil {
 			return fmt.Errorf("failed to decode near chain metadata: %w", err)
