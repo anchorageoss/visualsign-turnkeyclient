@@ -288,6 +288,7 @@ func TestVerifyAPIError(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -322,6 +323,7 @@ func TestVerifyAttestationError(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -360,6 +362,7 @@ func TestVerifyInvalidAttestation(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -405,6 +408,7 @@ func TestVerifySaveManifest(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload:  "unsigned-payload",
+		Chain:            "CHAIN_SOLANA",
 		SaveManifestPath: manifestPath,
 	}
 
@@ -432,6 +436,7 @@ func TestVerifyMissingAttestations(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -480,6 +485,7 @@ func TestVerifyInvalidPublicKey(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -524,6 +530,7 @@ func TestVerifyInvalidSignatureHex(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -532,23 +539,22 @@ func TestVerifyInvalidSignatureHex(t *testing.T) {
 	require.Contains(t, err.Error(), "failed to decode signature hex")
 }
 
-// Test Verify - default chain value
-func TestVerifyDefaultChain(t *testing.T) {
+// TestVerifyRequiresChain ensures that Verify errors when Chain is unset,
+// rather than silently defaulting to CHAIN_SOLANA.
+func TestVerifyRequiresChain(t *testing.T) {
 	mockAPI := &mockAPIClient{err: fmt.Errorf("API error")}
 	mockVerifier := &mockAttestationVerifier{}
 
 	service := NewService(mockAPI, mockVerifier)
 
-	// Test that empty chain triggers default handling
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
-		Chain:           "", // Should default to CHAIN_SOLANA
+		// Chain intentionally empty
 	}
 
 	_, err := service.Verify(context.Background(), req)
 	require.Error(t, err)
-	// The API will be called with CHAIN_SOLANA default, but we don't test that here
-	// We just verify the function handles empty chain correctly
+	require.Contains(t, err.Error(), "chain must be specified")
 }
 
 // Test Verify - save manifest with invalid base64
@@ -577,6 +583,7 @@ func TestVerifySaveManifestInvalidBase64(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload:  "unsigned-payload",
+		Chain:            "CHAIN_SOLANA",
 		SaveManifestPath: manifestPath,
 	}
 

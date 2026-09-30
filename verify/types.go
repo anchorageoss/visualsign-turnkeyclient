@@ -12,6 +12,7 @@
 //
 //	result, err := verifyService.Verify(ctx, &verify.VerifyRequest{
 //		UnsignedPayload: "base64-payload",
+//		Chain:           "CHAIN_SOLANA",
 //		QosManifestHex:  "expected-manifest-hash",
 //	})
 //	if err != nil {
@@ -50,7 +51,9 @@ type VerifyRequest struct {
 	QosManifestHex     string
 	PivotBinaryHashHex string
 	SaveManifestPath   string
-	Chain              string
+	// Chain is required. It is sent to the Turnkey parse API and, together
+	// with ChainMetadata, is validated for consistency before the call is made.
+	Chain string
 	// ChainMetadata is forwarded to the Turnkey parse API when non-nil.
 	// When set, Verify locally recomputes metadataDigest via Borsh encoding and
 	// compares it against the backend-reported value.

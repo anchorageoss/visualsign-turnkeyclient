@@ -73,9 +73,9 @@ func VerifyCommand() *cli.Command {
 				Usage: "Save the QoS manifest envelope to a binary file at the specified path",
 			},
 			&cli.StringFlag{
-				Name:  "chain",
-				Usage: "Blockchain network (CHAIN_SOLANA, CHAIN_ETHEREUM, etc)",
-				Value: "CHAIN_SOLANA",
+				Name:     "chain",
+				Usage:    "Blockchain network (CHAIN_SOLANA, CHAIN_ETHEREUM, etc)",
+				Required: true,
 			},
 			&cli.BoolFlag{
 				Name:  "dev-path",
