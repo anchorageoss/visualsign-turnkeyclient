@@ -1,6 +1,6 @@
 // Package manifest provides types and parsing functions for QoS (QuorumOS) manifests.
 //
-// Manifests are Borsh-encoded security policies for AWS Nitro Enclaves running QuorumOS.
+// Manifests are security policies, accepted as QOS JSON (v2) envelopes, for AWS Nitro Enclaves running QuorumOS.
 // They define the enclave's configuration, including binary hashes, PCR values, and
 // quorum members authorized to update the manifest.
 //
@@ -12,7 +12,7 @@
 //   - ManifestSet: Quorum members who can update the manifest
 //   - ShareSet: Members holding key shares
 //   - Enclave: Expected PCR values for attestation verification
-//   - PatchSet: Members authorized to apply patches
+//   - PatchSet: Legacy field, always empty for JSON v2 manifests
 //
 // # Parsing
 //

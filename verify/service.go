@@ -446,6 +446,8 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		rawManifestBytes, err := base64.StdEncoding.DecodeString(response.QosManifestB64)
 		if err == nil {
 			rawManifestHash = manifest.ComputeHash(rawManifestBytes)
+		} else if response.QosManifestEnvelopeB64 == "" {
+			return fmt.Errorf("failed to decode raw manifest base64: %w", err)
 		}
 	}
 

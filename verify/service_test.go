@@ -715,6 +715,15 @@ func TestProcessManifest(t *testing.T) {
 		require.False(t, result.ManifestReserialization.Matches)
 	})
 
+	t.Run("raw-only malformed base64 fails", func(t *testing.T) {
+		response := &api.SignablePayloadResponse{QosManifestB64: "!!!not-base64!!!"}
+		result := &VerifyResult{}
+
+		err := service.processManifest(response, []byte{}, result)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to decode raw manifest base64")
+	})
+
 	t.Run("envelope decode failure ignores the raw manifest field", func(t *testing.T) {
 		// `{}` is valid JSON but fails the strict JSON manifest-envelope
 		// schema (missing required fields). A raw manifest also being
