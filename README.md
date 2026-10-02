@@ -126,26 +126,17 @@ Perform end-to-end verification of a transaction:
 
 ### Decode Manifest Command
 
-Decode and display a QoS manifest from a file or base64 string:
+Decode and display a QOS JSON (v2) manifest envelope from a file or base64 string. The legacy Borsh format and the `decode-manifest raw` subcommand were removed.
 
 ```bash
 # Decode from file (human-readable)
-./bin/visualsign-turnkeyclient decode-manifest raw --file /tmp/manifest.bin
+./bin/visualsign-turnkeyclient decode-manifest envelope --file /tmp/manifest.json
 
-# Decode from file (JSON output)
-./bin/visualsign-turnkeyclient decode-manifest raw --file /tmp/manifest.bin --json
+# Decode from base64 string (JSON output)
+./bin/visualsign-turnkeyclient decode-manifest envelope --base64 "eyJtYW5pZmVzdCI6..." --json
 
-# Decode from base64 string
-./bin/visualsign-turnkeyclient decode-manifest raw --base64 "AQAAAAAAA..." --json
-
-# Decode manifest envelope (with approvals)
-./bin/visualsign-turnkeyclient decode-manifest envelope --file /tmp/manifest.bin --json
-
-# Decode a QOS JSON (v2) manifest envelope (Turnkey's newer TVC format) —
-# format is auto-detected from the decoded bytes, so no --api-version flag
-# is needed. testdata/qos_manifest_envelope_v2.json is a redacted/synthetic
-# fixture with this shape; see "JSON (v2) Manifest Envelopes" below for the
-# schema.
+# testdata/qos_manifest_envelope_v2.json is a redacted/synthetic fixture; see
+# "JSON (v2) Manifest Envelopes" below for the schema.
 ./bin/visualsign-turnkeyclient decode-manifest envelope \
   --file testdata/qos_manifest_envelope_v2.json \
   --json | jq .
@@ -153,7 +144,7 @@ Decode and display a QoS manifest from a file or base64 string:
 
 #### Flags
 
-- `--file <path>`: Path to manifest envelope binary file
+- `--file <path>`: Path to manifest envelope file
 - `--base64 <string>`: Base64-encoded manifest envelope string
 - `--json`: Output in JSON format (compatible with qos_client format)
 
@@ -167,7 +158,7 @@ The verify command performs comprehensive validation:
 2. **Attestation Verification**: Validates the AWS Nitro attestation document
 3. **Public Key Extraction**: Extracts the ephemeral public key from the signature
 4. **Signature Verification**: Verifies the ECDSA signature matches the message
-5. **Manifest Decoding**: Decodes the QoS manifest from borsh-encoded data
+5. **Manifest Decoding**: Decodes the QoS manifest envelope from QOS JSON (v2)
 6. **Hash Validation**: Compares manifest hash against UserData in attestation
 
 ### Verification Output
@@ -219,7 +210,6 @@ The manifest specifies:
 - **Manifest Set**: Quorum members who can update the manifest (threshold-based)
 - **Share Set**: Members who hold key shares for cryptographic operations
 - **Enclave Config**: Expected PCR values that attest to the enclave state
-- **Patch Set**: Members authorized to apply security patches
 
 ### Why Validate the Manifest?
 
@@ -233,31 +223,17 @@ The manifest hash in the attestation's `UserData` field proves that:
 ### Decoding Process
 
 1. Extract `qosManifestEnvelopeB64` from API response's `bootProof` field
-2. Decode from base64. The format is sniffed, not declared: if the first non-whitespace byte is `{` *and* the full payload parses as valid JSON, it's a QOS JSON (v2) envelope; otherwise it's the legacy Borsh envelope (this also covers malformed JSON that merely starts with `{`). There is no fallback between formats: a malformed envelope of one format is never retried as the other.
-3. Deserialize using the selected format's decoder to extract the manifest structure
+2. Decode from base64 and strictly decode the bytes as a QOS JSON (v2) envelope. Anything else, including legacy Borsh envelopes, is rejected.
+3. Re-serialize the manifest as QOS canonical JSON
 4. Compute the manifest hash and compare against attestation UserData
-
-```go
-// Manifest structure (simplified, Borsh envelope)
-type Manifest struct {
-    Namespace   Namespace   // org/app identifier
-    Pivot       PivotConfig // binary hash + restart policy
-    ManifestSet ManifestSet // quorum for manifest updates
-    ShareSet    ShareSet    // key share holders
-    Enclave     NitroConfig // expected PCRs
-    PatchSet    PatchSet    // patch approvers
-}
-```
 
 ### JSON (v2) Manifest Envelopes
 
-Turnkey's newer TVC apps send the manifest as QOS JSON rather than Borsh. This
-is a third schema (`manifest.ManifestJSONV2`/`manifest.ManifestEnvelopeJSONV2`),
-not a JSON encoding of the Borsh `Manifest` type: it drops `patchSet` and adds
-`dns` and `pivot.env`.
+Turnkey TVC apps send the manifest as QOS JSON
+(`manifest.ManifestJSONV2`/`manifest.ManifestEnvelopeJSONV2`). Compared to the
+retired Borsh schema it drops `patchSet` and adds `dns` and `pivot.env`.
 
-The hash rule differs from Borsh in one important way: **the manifest bytes
-that get hashed are never the inbound bytes.** QuorumOS defines the manifest
+**The manifest bytes that get hashed are never the inbound bytes.** QuorumOS defines the manifest
 hash as `sha256` of the manifest re-encoded as its
 [QOS canonical JSON](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md)
 form, a QOS-normalized [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)
@@ -267,9 +243,8 @@ Go structs first (rejecting duplicate keys and unknown fields), then
 re-serializes through the canonical JSON writer before hashing; the inbound
 bytes' key order, whitespace, and any `null` members never affect the hash.
 Byte fields (PCR values, public keys, signatures) are lowercase hex, not
-base64. Only this canonical-manifest hash binds a JSON envelope to attestation
-UserData: unlike the Borsh path, a JSON envelope does not also accept a match
-on the raw or outer-envelope hash.
+base64. Only this canonical-manifest hash binds an envelope to attestation
+UserData: a match on the raw or outer-envelope hash is not accepted.
 
 ### Validation Against Reference Implementation
 
@@ -425,14 +400,11 @@ Each member has:
 
 ### Hash Verification Process
 
-The client computes three types of hashes:
+When the API returns a manifest envelope, the only hash that can bind it to the attestation is the canonical manifest hash: `sha256` of the manifest re-serialized as QOS canonical JSON. It must equal UserData. The raw manifest hash is compared only when the API returns a raw manifest and no envelope. The envelope hash is shown in `--debug` output for diagnostics and never satisfies the binding.
 
 ```
-Raw Manifest Hash:        1748b319a6353f8191c79f2e4841ef7c948a722107ab3d99fec82bf6f306d464
-Re-serialized Hash:       1748b319a6353f8191c79f2e4841ef7c948a722107ab3d99fec82bf6f306d464
-Envelope Hash:            de3900c56a32686ab5c0d752f63ecf61a27a82f9c1b0da3c30d95c30de141d3e
-
-UserData (from attestation): 60d9c5754d6979afca7a5e75edfa43b629110301d8c57f9ff1718b74f70b5a9c
+Reserialized Manifest:          1748b319a6353f8191c79f2e4841ef7c948a722107ab3d99fec82bf6f306d464
+UserData (from attestation):    1748b319a6353f8191c79f2e4841ef7c948a722107ab3d99fec82bf6f306d464
 ```
 
 **Hash Mismatch Reasons:**
@@ -451,11 +423,12 @@ If manifest hash doesn't match UserData:
 1. **Check Environment**: Ensure you're comparing the same environment (testkey vs prod)
 2. **Check Timing**: Verify the manifest wasn't updated after enclave boot
 3. **Use Reference**: Compare with `qos_client` output to verify decoding is correct
-4. **Check Envelope**: Try comparing envelope hash vs raw manifest hash
+
+A match on the raw or envelope hash does not make an envelope valid, so don't use those to work around a canonical hash mismatch.
 
 ```bash
-# Compare hashes
-./bin/visualsign-turnkeyclient verify ... 2>&1 | grep "SHA256"
+# Show the hash details on a mismatch
+./bin/visualsign-turnkeyclient verify ... --debug 2>&1 | grep -A6 "Manifest Hash Details"
 ```
 
 #### Decoding Errors
@@ -464,7 +437,7 @@ If manifest decoding fails:
 
 1. **Verify Base64**: Check that the base64 encoding is valid
 2. **Check Field Name**: Use `qosManifestEnvelopeB64` (not `qosManifestB64`)
-3. **Borsh Format**: Ensure the borsh deserialization format matches the manifest structure
+3. **JSON Format**: Ensure the envelope is QOS JSON (v2); legacy Borsh envelopes are no longer supported
 4. **Compare with Reference**: Run `qos_client` to see if it can decode the same file
 
 ```bash
@@ -495,31 +468,10 @@ Report any discrepancies as they indicate a bug in the Go implementation.
 
 ## Implementation Details
 
-### Borsh Serialization
-
-The manifest uses [Borsh](https://borsh.io/) (Binary Object Representation Serializer for Hashing):
-
-```go
-type Manifest struct {
-    Namespace   Namespace   `borsh:"namespace"`
-    Pivot       PivotConfig `borsh:"pivot"`
-    ManifestSet ManifestSet `borsh:"manifest_set"`
-    ShareSet    ShareSet    `borsh:"share_set"`
-    Enclave     NitroConfig `borsh:"enclave"`
-    PatchSet    PatchSet    `borsh:"patch_set"`
-}
-```
-
-**Key Features of Borsh:**
-- Deterministic serialization (same object → same bytes)
-- Efficient binary format
-- Strong typing with explicit field order
-- Used by Turnkey QuorumOS for manifest integrity
-
 ### Dependencies
 
 - `github.com/anchorageoss/awsnitroverifier`: AWS Nitro attestation verification
-- `github.com/near/borsh-go`: Borsh serialization/deserialization
+- `github.com/near/borsh-go`: Borsh serialization for the chain metadata digest and parsed payload binding
 - `github.com/urfave/cli/v3`: Command-line interface framework
 
 ## Security Considerations
@@ -546,7 +498,7 @@ The client verifies:
 
 The client verifies:
 1. ✅ Manifest hash matches UserData in attestation (or explains mismatch)
-2. ✅ Borsh deserialization succeeds without errors
+2. ✅ Strict QOS JSON envelope decoding succeeds without errors
 3. ✅ All required fields are present and valid
 4. ✅ PCR values in manifest match attestation PCRs
 5. ✅ Quorum thresholds are sensible (≥ 1, ≤ member count)
@@ -566,10 +518,10 @@ make build
   --save-qos-manifest /tmp/manifest.bin
 
 # 2. Decode manifest with our Go client
-./bin/visualsign-turnkeyclient decode-manifest raw --file /tmp/manifest.bin
+./bin/visualsign-turnkeyclient decode-manifest envelope --file /tmp/manifest.bin
 
 # 3. Get JSON output from our Go client
-./bin/visualsign-turnkeyclient decode-manifest raw --file /tmp/manifest.bin --json | jq .
+./bin/visualsign-turnkeyclient decode-manifest envelope --file /tmp/manifest.bin --json | jq .
 
 # 4. Verify with Docker container (easiest method)
 docker run -v /tmp:/tmp \

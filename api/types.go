@@ -32,8 +32,6 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
-
-	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 )
 
 // TurnkeyAPIKey represents the API key configuration
@@ -284,7 +282,6 @@ type SignablePayloadResponse struct {
 	MetadataDigest                   string                     `json:"metadataDigest,omitempty"`     // v2
 	IntermediateOutputB64            string                     `json:"intermediateOutput,omitempty"` // v2, base64 Borsh
 	TurnkeySerializedSignablePayload string                     `json:"turnkeySerializedSignablePayload"`
-	ManifestVersion                  manifest.ManifestVersion   `json:"manifestVersion"`
 	Attestations                     map[AttestationType]string `json:"attestations"`
 	QosManifestB64                   string                     `json:"qosManifestB64,omitempty"`
 	QosManifestEnvelopeB64           string                     `json:"qosManifestEnvelopeB64,omitempty"`
