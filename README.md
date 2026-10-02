@@ -400,14 +400,11 @@ Each member has:
 
 ### Hash Verification Process
 
-The client computes three types of hashes:
+When the API returns a manifest envelope, the only hash that can bind it to the attestation is the canonical manifest hash: `sha256` of the manifest re-serialized as QOS canonical JSON. It must equal UserData. The raw manifest hash is compared only when the API returns a raw manifest and no envelope. The envelope hash is shown in `--debug` output for diagnostics and never satisfies the binding.
 
 ```
-Raw Manifest Hash:        1748b319a6353f8191c79f2e4841ef7c948a722107ab3d99fec82bf6f306d464
-Re-serialized Hash:       1748b319a6353f8191c79f2e4841ef7c948a722107ab3d99fec82bf6f306d464
-Envelope Hash:            de3900c56a32686ab5c0d752f63ecf61a27a82f9c1b0da3c30d95c30de141d3e
-
-UserData (from attestation): 60d9c5754d6979afca7a5e75edfa43b629110301d8c57f9ff1718b74f70b5a9c
+Reserialized Manifest:          1748b319a6353f8191c79f2e4841ef7c948a722107ab3d99fec82bf6f306d464
+UserData (from attestation):    1748b319a6353f8191c79f2e4841ef7c948a722107ab3d99fec82bf6f306d464
 ```
 
 **Hash Mismatch Reasons:**
@@ -426,11 +423,12 @@ If manifest hash doesn't match UserData:
 1. **Check Environment**: Ensure you're comparing the same environment (testkey vs prod)
 2. **Check Timing**: Verify the manifest wasn't updated after enclave boot
 3. **Use Reference**: Compare with `qos_client` output to verify decoding is correct
-4. **Check Envelope**: Try comparing envelope hash vs raw manifest hash
+
+A match on the raw or envelope hash does not make an envelope valid, so don't use those to work around a canonical hash mismatch.
 
 ```bash
-# Compare hashes
-./bin/visualsign-turnkeyclient verify ... 2>&1 | grep "SHA256"
+# Show the hash details on a mismatch
+./bin/visualsign-turnkeyclient verify ... --debug 2>&1 | grep -A6 "Manifest Hash Details"
 ```
 
 #### Decoding Errors
