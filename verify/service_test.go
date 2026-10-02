@@ -759,6 +759,7 @@ func TestProcessManifest(t *testing.T) {
 
 		err = service.processManifest(response, envelopeHashBytes, result)
 		require.Error(t, err, "a raw/envelope hash match must not satisfy the JSON hash binding")
+		require.NotContains(t, err.Error(), "raw-manifest")
 	})
 
 	t.Run("envelope base64 decode failure does not leak a hash of partial bytes", func(t *testing.T) {

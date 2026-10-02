@@ -537,7 +537,7 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 			serializationResult.ReserializationNeeded = true
 			mismatchMsg := fmt.Sprintf(
 				"manifest hash mismatch: boot-time %s", userDataHex)
-			if rawManifestHash != "" {
+			if response.QosManifestEnvelopeB64 == "" && rawManifestHash != "" {
 				mismatchMsg += fmt.Sprintf(" != raw-manifest %s", rawManifestHash)
 			}
 			if reserializedManifestHash != "" {
