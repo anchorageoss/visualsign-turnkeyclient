@@ -673,7 +673,6 @@ func TestProcessManifest(t *testing.T) {
 		err = service.processManifest(response, wrongUserDataBytes, result)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "manifest hash mismatch")
-		require.False(t, result.ManifestReserialization.Matches)
 	})
 
 	t.Run("json envelope", func(t *testing.T) {

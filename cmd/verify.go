@@ -224,7 +224,7 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Display manifest details if available
-	if result.Manifest != nil || result.ManifestReserialization.ReserializationNeeded {
+	if result.Manifest != nil || result.ManifestReserialization.ReserializationNeeded || result.ManifestReserialization.Matches {
 		fmt.Fprintf(os.Stderr, "\n=== QoS Manifest Decoding ===\n")
 		if result.Manifest != nil {
 			fmt.Fprintf(os.Stderr, "✓ Manifest decoded successfully\n")
