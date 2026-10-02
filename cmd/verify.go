@@ -16,19 +16,14 @@ import (
 
 // matchedHashLabel returns the human-readable name of the hash that
 // satisfied the UserData binding, keyed by ManifestSerializationResult's
-// MatchedVia. A JSON envelope never matches via "raw" (see
-// processManifest's isJSONEnvelope gating), so this must not hard-code a
-// single message for every match kind.
+// MatchedVia. A JSON envelope only ever matches via "canonical"; "raw" applies
+// only when no envelope is present.
 func matchedHashLabel(matchedVia string) string {
 	switch matchedVia {
 	case "raw":
 		return "Raw manifest hash"
-	case "reserialized":
-		return "Reserialized manifest hash"
 	case "canonical":
 		return "Canonical JSON manifest hash"
-	case "envelope":
-		return "Envelope hash"
 	default:
 		return "Manifest hash"
 	}
@@ -133,8 +128,8 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 	keyProvider := &keys.FileKeyProvider{KeyName: keyName}
 	// Validate api-version flag before doing any expensive work
 	apiVersion := cmd.String("api-version")
-	if _, err := apiVersionToManifestVersion(apiVersion); err != nil {
-		return err
+	if apiVersion != "v1" && apiVersion != "v2" {
+		return fmt.Errorf("unsupported --api-version %q: must be \"v1\" or \"v2\"", apiVersion)
 	}
 
 	apiClient, err := api.NewClient(hostURI, httpClient, organizationID, keyProvider)

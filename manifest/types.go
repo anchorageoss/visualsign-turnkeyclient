@@ -16,9 +16,9 @@
 //
 // # Parsing
 //
-// Decode manifests using DecodeRawManifestFromBase64 or DecodeManifestEnvelopeFromFile:
+// Decode manifests using DecodeManifestEnvelopeFromBase64 or DecodeManifestEnvelopeFromFile:
 //
-//	manifest, manifestBytes, err := manifest.DecodeRawManifestFromBase64(base64String, manifest.V2)
+//	envelope, manifest, manifestBytes, envelopeBytes, err := manifest.DecodeManifestEnvelopeFromBase64(base64String)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
@@ -160,68 +160,4 @@ type ManifestEnvelope struct {
 	Manifest             Manifest   `borsh:"manifest"`
 	ManifestSetApprovals []Approval `borsh:"manifest_set_approvals"`
 	ShareSetApprovals    []Approval `borsh:"share_set_approvals"`
-}
-
-// ManifestVersion indicates which manifest schema to use for decoding.
-type ManifestVersion int
-
-const (
-	// ManifestVersionUnknown indicates that no manifest version was explicitly selected.
-	ManifestVersionUnknown ManifestVersion = iota
-	// V1 is the legacy layout (v1 API): PivotConfig has hash, restart, args only.
-	V1
-	// V2 is the current Borsh layout (v2 API): PivotConfig has hash, restart, bridge_config, debug_mode, args.
-	V2
-)
-
-// --- V1 types for backward compatibility with v1 API ---
-
-// PivotConfigV1 is the legacy pivot config: hash, restart, args (no bridge_config or debug_mode)
-type PivotConfigV1 struct {
-	Hash    Hash256       `borsh:"hash"`
-	Restart RestartPolicy `borsh:"restart"`
-	Args    []string      `borsh:"args"`
-}
-
-// ManifestV1 uses PivotConfigV1 (legacy layout)
-type ManifestV1 struct {
-	Namespace   Namespace     `borsh:"namespace"`
-	Pivot       PivotConfigV1 `borsh:"pivot"`
-	ManifestSet ManifestSet   `borsh:"manifest_set"`
-	ShareSet    ShareSet      `borsh:"share_set"`
-	Enclave     NitroConfig   `borsh:"enclave"`
-	PatchSet    PatchSet      `borsh:"patch_set"`
-}
-
-// ManifestEnvelopeV1 wraps ManifestV1 with approval signatures (legacy layout)
-type ManifestEnvelopeV1 struct {
-	Manifest             ManifestV1 `borsh:"manifest"`
-	ManifestSetApprovals []Approval `borsh:"manifest_set_approvals"`
-	ShareSetApprovals    []Approval `borsh:"share_set_approvals"`
-}
-
-// ToManifest converts a legacy ManifestV1 to the current Manifest type
-func (v1 *ManifestV1) ToManifest() Manifest {
-	return Manifest{
-		Namespace: v1.Namespace,
-		Pivot: PivotConfig{
-			Hash:    v1.Pivot.Hash,
-			Restart: v1.Pivot.Restart,
-			Args:    v1.Pivot.Args,
-		},
-		ManifestSet: v1.ManifestSet,
-		ShareSet:    v1.ShareSet,
-		Enclave:     v1.Enclave,
-		PatchSet:    v1.PatchSet,
-	}
-}
-
-// ToManifestEnvelope converts a legacy ManifestEnvelopeV1 to the current ManifestEnvelope type
-func (v1 *ManifestEnvelopeV1) ToManifestEnvelope() ManifestEnvelope {
-	m := v1.Manifest.ToManifest()
-	return ManifestEnvelope{
-		Manifest:             m,
-		ManifestSetApprovals: v1.ManifestSetApprovals,
-		ShareSetApprovals:    v1.ShareSetApprovals,
-	}
 }
