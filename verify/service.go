@@ -56,13 +56,10 @@ func (s *Service) Verify(ctx context.Context, req *VerifyRequest) (*VerifyResult
 		return nil, errors.New("Verify requires a non-nil VerifyRequest")
 	}
 
-	chain := req.Chain
-	if chain == "" {
-		if req.ChainMetadata != nil {
-			return nil, fmt.Errorf("chain must be specified when ChainMetadata is set")
-		}
-		chain = "CHAIN_SOLANA" // default to Solana if not specified
+	if req.Chain == "" {
+		return nil, fmt.Errorf("chain must be specified")
 	}
+	chain := req.Chain
 	if req.ChainMetadata != nil && req.ChainMetadata.Ethereum != nil {
 		if !strings.HasPrefix(chain, "CHAIN_ETHEREUM") {
 			return nil, fmt.Errorf("ChainMetadata.Ethereum requires an Ethereum chain, got %q", chain)
