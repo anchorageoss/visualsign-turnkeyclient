@@ -77,6 +77,7 @@ func TestVerifyCommandRejectsAPIVersionV1(t *testing.T) {
 		"--organization-id", "org",
 		"--key-name", "key",
 		"--unsigned-payload", "payload",
+		"--chain", "CHAIN_SOLANA",
 		"--api-version", "v1",
 	})
 	require.ErrorContains(t, err, `only "v2" is supported`)
