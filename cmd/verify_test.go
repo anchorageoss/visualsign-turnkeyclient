@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -67,4 +68,16 @@ func TestVerifyCommandHasDevPathFlag(t *testing.T) {
 	}
 
 	require.True(t, hasDevPath, "verify should have a --dev-path flag to target /visualsign-dev")
+}
+
+func TestVerifyCommandRejectsAPIVersionV1(t *testing.T) {
+	err := VerifyCommand().Run(context.Background(), []string{
+		"verify",
+		"--host", "https://example.invalid",
+		"--organization-id", "org",
+		"--key-name", "key",
+		"--unsigned-payload", "payload",
+		"--api-version", "v1",
+	})
+	require.ErrorContains(t, err, `only "v2" is supported`)
 }

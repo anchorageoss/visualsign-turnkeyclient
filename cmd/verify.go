@@ -86,7 +86,7 @@ func VerifyCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  "api-version",
-				Usage: "VisualSign API version (v1 or v2)",
+				Usage: "VisualSign API version (only v2 is supported)",
 				Value: "v2",
 			},
 			&cli.StringFlag{
@@ -128,8 +128,8 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 	keyProvider := &keys.FileKeyProvider{KeyName: keyName}
 	// Validate api-version flag before doing any expensive work
 	apiVersion := cmd.String("api-version")
-	if apiVersion != "v1" && apiVersion != "v2" {
-		return fmt.Errorf("unsupported --api-version %q: must be \"v1\" or \"v2\"", apiVersion)
+	if apiVersion != "v2" {
+		return fmt.Errorf("unsupported --api-version %q: only \"v2\" is supported", apiVersion)
 	}
 
 	apiClient, err := api.NewClient(hostURI, httpClient, organizationID, keyProvider)

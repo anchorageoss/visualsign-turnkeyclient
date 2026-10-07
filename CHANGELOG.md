@@ -13,6 +13,8 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 ### Removed
 - **Breaking:** legacy Borsh QoS manifest decode path. Only QOS JSON (v2) manifest envelopes are decoded (a raw manifest without an envelope is still hash-compared against UserData). Removed `manifest.ManifestVersion` (`V1`/`V2`), the V1 manifest types, `DecodeRawManifestFrom*`, `DecodeManifestFrom*`, `DetectEnvelopeFormat`, and `api.SignablePayloadResponse.ManifestVersion`. `DecodeManifestEnvelopeFrom*` no longer take a version argument.
 - `decode-manifest raw` subcommand and the `--api-version` flag on `decode-manifest envelope`
+- **Breaking:** `parse` JSON output no longer includes `manifestVersion`
+- **Breaking:** `verify --api-version` only accepts `v2`
 
 ### Changed
 - Use commit-count-based auto-versioning derived from git history
