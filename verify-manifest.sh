@@ -27,7 +27,7 @@ if [ "$USE_DOCKER" = "true" ]; then
     echo "  Using Docker container: ghcr.io/tkhq/qos:latest"
     QOS_OUTPUT=$(docker run --rm -v "$(dirname "$MANIFEST_FILE"):/data" \
         ghcr.io/tkhq/qos:latest \
-        qos_client display --display-type manifest --file-path "/data/$(basename "$MANIFEST_FILE")" --json 2>"$QOS_ERROR_LOG")
+        qos_client display --display-type manifest-envelope --file-path "/data/$(basename "$MANIFEST_FILE")" --json 2>"$QOS_ERROR_LOG")
 else
     # Use local qos_client installation
     QOS_CLIENT_PATH="${QOS_CLIENT_PATH:-qos_client}"
@@ -37,7 +37,7 @@ else
         exit 1
     fi
     echo "  Using local qos_client: $QOS_CLIENT_PATH"
-    QOS_OUTPUT=$(cd "$QOS_CLIENT_PATH" && timeout 15s cargo run --quiet --bin qos_client -- display --display-type manifest --file-path "$MANIFEST_FILE" --json 2>"$QOS_ERROR_LOG")
+    QOS_OUTPUT=$(cd "$QOS_CLIENT_PATH" && timeout 15s cargo run --quiet --bin qos_client -- display --display-type manifest-envelope --file-path "$MANIFEST_FILE" --json 2>"$QOS_ERROR_LOG")
 fi
 QOS_EXIT_CODE=$?
 
@@ -49,7 +49,7 @@ if [ $QOS_EXIT_CODE -ne 0 ]; then
     else
         echo "   | No error output captured"
     fi
-    echo "   This may be due to Borsh version incompatibility"
+    echo "   This may be due to an input format mismatch (expected a JSON manifest envelope)"
 fi
 
 # Check if we got valid JSON output regardless of exit code
@@ -61,7 +61,7 @@ else
         echo "⚠️  qos_client output is not valid JSON:"
         echo "$QOS_OUTPUT" | sed 's/^/   | /'
     else
-        echo "⚠️  qos_client produced no output - manifest format incompatible with qos_client Borsh version"
+        echo "⚠️  qos_client produced no output - manifest envelope not decodable by qos_client"
     fi
     echo "   Proceeding with Go-only verification..."
     QOS_OUTPUT=""
@@ -73,11 +73,9 @@ rm -f "$QOS_ERROR_LOG"
 
 # Get JSON output from our Go client
 echo "Running Go client (our implementation)..."
-# First try as envelope, then fall back to raw manifest
-GO_OUTPUT=$(go run . decode-manifest-envelope --file "$MANIFEST_FILE" --json 2>/dev/null) || {
-    echo "   Trying as raw manifest format..."
-    GO_OUTPUT=$(go run . decode-manifest --file "$MANIFEST_FILE" --json)
-    GO_IS_RAW_MANIFEST=true
+GO_OUTPUT=$(go run . decode-manifest envelope --file "$MANIFEST_FILE" --json) || {
+    echo "Error: Go client failed to decode $MANIFEST_FILE as a JSON manifest envelope"
+    exit 1
 }
 
 # Extract key fields from both outputs
@@ -85,51 +83,35 @@ echo ""
 echo "=== Extracting Key Fields ==="
 
 if [ "$QOS_HAS_VALID_OUTPUT" = "true" ]; then
-    # From qos_client (reference) - always raw manifest format (no .manifest wrapper)
-    QOS_NAMESPACE=$(echo "$QOS_OUTPUT" | jq -r '.namespace.name')
-    QOS_NONCE=$(echo "$QOS_OUTPUT" | jq -r '.namespace.nonce')
-    QOS_QUORUM_KEY=$(echo "$QOS_OUTPUT" | jq -r '.namespace.quorumKey')
-    QOS_PIVOT_HASH=$(echo "$QOS_OUTPUT" | jq -r '.pivot.hash')
-    QOS_RESTART=$(echo "$QOS_OUTPUT" | jq -r '.pivot.restart')
-    QOS_MANIFEST_THRESHOLD=$(echo "$QOS_OUTPUT" | jq -r '.manifestSet.threshold')
-    QOS_MANIFEST_MEMBERS=$(echo "$QOS_OUTPUT" | jq -r '.manifestSet.members | length')
-    QOS_PCR0=$(echo "$QOS_OUTPUT" | jq -r '.enclave.pcr0')
-    QOS_PCR1=$(echo "$QOS_OUTPUT" | jq -r '.enclave.pcr1')
-    QOS_PCR2=$(echo "$QOS_OUTPUT" | jq -r '.enclave.pcr2')
-    QOS_PCR3=$(echo "$QOS_OUTPUT" | jq -r '.enclave.pcr3')
+    # From qos_client (reference, manifest-envelope format, with .manifest wrapper)
+    QOS_NAMESPACE=$(echo "$QOS_OUTPUT" | jq -r '.manifest.namespace.name')
+    QOS_NONCE=$(echo "$QOS_OUTPUT" | jq -r '.manifest.namespace.nonce')
+    QOS_QUORUM_KEY=$(echo "$QOS_OUTPUT" | jq -r '.manifest.namespace.quorumKey')
+    QOS_PIVOT_HASH=$(echo "$QOS_OUTPUT" | jq -r '.manifest.pivot.hash')
+    QOS_RESTART=$(echo "$QOS_OUTPUT" | jq -r '.manifest.pivot.restart')
+    QOS_MANIFEST_THRESHOLD=$(echo "$QOS_OUTPUT" | jq -r '.manifest.manifestSet.threshold')
+    QOS_MANIFEST_MEMBERS=$(echo "$QOS_OUTPUT" | jq -r '.manifest.manifestSet.members | length')
+    QOS_PCR0=$(echo "$QOS_OUTPUT" | jq -r '.manifest.enclave.pcr0')
+    QOS_PCR1=$(echo "$QOS_OUTPUT" | jq -r '.manifest.enclave.pcr1')
+    QOS_PCR2=$(echo "$QOS_OUTPUT" | jq -r '.manifest.enclave.pcr2')
+    QOS_PCR3=$(echo "$QOS_OUTPUT" | jq -r '.manifest.enclave.pcr3')
     echo "✓ Fields extracted from qos_client"
 else
     echo "⚠️  qos_client failed to produce valid JSON, skipping reference comparison"
 fi
 
-# From Go client - handle both envelope and raw manifest formats
-if [ "$GO_IS_RAW_MANIFEST" = "true" ]; then
-    # Raw manifest format (no .manifest wrapper)
-    GO_NAMESPACE=$(echo "$GO_OUTPUT" | jq -r '.namespace.name')
-    GO_NONCE=$(echo "$GO_OUTPUT" | jq -r '.namespace.nonce')
-    GO_QUORUM_KEY=$(echo "$GO_OUTPUT" | jq -r '.namespace.quorumKey')
-    GO_PIVOT_HASH=$(echo "$GO_OUTPUT" | jq -r '.pivot.hash')
-    GO_RESTART=$(echo "$GO_OUTPUT" | jq -r '.pivot.restart')
-    GO_MANIFEST_THRESHOLD=$(echo "$GO_OUTPUT" | jq -r '.manifestSet.threshold')
-    GO_MANIFEST_MEMBERS=$(echo "$GO_OUTPUT" | jq -r '.manifestSet.members | length')
-    GO_PCR0=$(echo "$GO_OUTPUT" | jq -r '.enclave.pcr0')
-    GO_PCR1=$(echo "$GO_OUTPUT" | jq -r '.enclave.pcr1')
-    GO_PCR2=$(echo "$GO_OUTPUT" | jq -r '.enclave.pcr2')
-    GO_PCR3=$(echo "$GO_OUTPUT" | jq -r '.enclave.pcr3')
-else
-    # Envelope format (with .manifest wrapper)
-    GO_NAMESPACE=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.name')
-    GO_NONCE=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.nonce')
-    GO_QUORUM_KEY=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.quorumKey')
-    GO_PIVOT_HASH=$(echo "$GO_OUTPUT" | jq -r '.manifest.pivot.hash')
-    GO_RESTART=$(echo "$GO_OUTPUT" | jq -r '.manifest.pivot.restart')
-    GO_MANIFEST_THRESHOLD=$(echo "$GO_OUTPUT" | jq -r '.manifest.manifestSet.threshold')
-    GO_MANIFEST_MEMBERS=$(echo "$GO_OUTPUT" | jq -r '.manifest.manifestSet.members | length')
-    GO_PCR0=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr0')
-    GO_PCR1=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr1')
-    GO_PCR2=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr2')
-    GO_PCR3=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr3')
-fi
+# From Go client (envelope format, with .manifest wrapper)
+GO_NAMESPACE=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.name')
+GO_NONCE=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.nonce')
+GO_QUORUM_KEY=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.quorumKey')
+GO_PIVOT_HASH=$(echo "$GO_OUTPUT" | jq -r '.manifest.pivot.hash')
+GO_RESTART=$(echo "$GO_OUTPUT" | jq -r '.manifest.pivot.restart')
+GO_MANIFEST_THRESHOLD=$(echo "$GO_OUTPUT" | jq -r '.manifest.manifestSet.threshold')
+GO_MANIFEST_MEMBERS=$(echo "$GO_OUTPUT" | jq -r '.manifest.manifestSet.members | length')
+GO_PCR0=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr0')
+GO_PCR1=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr1')
+GO_PCR2=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr2')
+GO_PCR3=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr3')
 
 echo "✓ Fields extracted from Go client"
 echo ""
@@ -211,7 +193,7 @@ else
     # No reference comparison possible
     echo "✅ Go Client Successfully Parsed Manifest"
     echo ""
-    echo "Note: qos_client reference tool failed (Borsh compatibility issue)"
+    echo "Note: qos_client reference tool failed to decode the manifest envelope"
     echo "Go client output saved to: /tmp/go_manifest_output.json"
     echo "$GO_OUTPUT" > /tmp/go_manifest_output.json
     echo ""
