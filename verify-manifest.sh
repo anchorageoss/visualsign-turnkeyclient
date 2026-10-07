@@ -73,11 +73,9 @@ rm -f "$QOS_ERROR_LOG"
 
 # Get JSON output from our Go client
 echo "Running Go client (our implementation)..."
-# First try as envelope, then fall back to raw manifest
-GO_OUTPUT=$(go run . decode-manifest-envelope --file "$MANIFEST_FILE" --json 2>/dev/null) || {
-    echo "   Trying as raw manifest format..."
-    GO_OUTPUT=$(go run . decode-manifest --file "$MANIFEST_FILE" --json)
-    GO_IS_RAW_MANIFEST=true
+GO_OUTPUT=$(go run . decode-manifest envelope --file "$MANIFEST_FILE" --json) || {
+    echo "Error: Go client failed to decode $MANIFEST_FILE as a JSON manifest envelope"
+    exit 1
 }
 
 # Extract key fields from both outputs
@@ -102,34 +100,18 @@ else
     echo "⚠️  qos_client failed to produce valid JSON, skipping reference comparison"
 fi
 
-# From Go client - handle both envelope and raw manifest formats
-if [ "$GO_IS_RAW_MANIFEST" = "true" ]; then
-    # Raw manifest format (no .manifest wrapper)
-    GO_NAMESPACE=$(echo "$GO_OUTPUT" | jq -r '.namespace.name')
-    GO_NONCE=$(echo "$GO_OUTPUT" | jq -r '.namespace.nonce')
-    GO_QUORUM_KEY=$(echo "$GO_OUTPUT" | jq -r '.namespace.quorumKey')
-    GO_PIVOT_HASH=$(echo "$GO_OUTPUT" | jq -r '.pivot.hash')
-    GO_RESTART=$(echo "$GO_OUTPUT" | jq -r '.pivot.restart')
-    GO_MANIFEST_THRESHOLD=$(echo "$GO_OUTPUT" | jq -r '.manifestSet.threshold')
-    GO_MANIFEST_MEMBERS=$(echo "$GO_OUTPUT" | jq -r '.manifestSet.members | length')
-    GO_PCR0=$(echo "$GO_OUTPUT" | jq -r '.enclave.pcr0')
-    GO_PCR1=$(echo "$GO_OUTPUT" | jq -r '.enclave.pcr1')
-    GO_PCR2=$(echo "$GO_OUTPUT" | jq -r '.enclave.pcr2')
-    GO_PCR3=$(echo "$GO_OUTPUT" | jq -r '.enclave.pcr3')
-else
-    # Envelope format (with .manifest wrapper)
-    GO_NAMESPACE=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.name')
-    GO_NONCE=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.nonce')
-    GO_QUORUM_KEY=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.quorumKey')
-    GO_PIVOT_HASH=$(echo "$GO_OUTPUT" | jq -r '.manifest.pivot.hash')
-    GO_RESTART=$(echo "$GO_OUTPUT" | jq -r '.manifest.pivot.restart')
-    GO_MANIFEST_THRESHOLD=$(echo "$GO_OUTPUT" | jq -r '.manifest.manifestSet.threshold')
-    GO_MANIFEST_MEMBERS=$(echo "$GO_OUTPUT" | jq -r '.manifest.manifestSet.members | length')
-    GO_PCR0=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr0')
-    GO_PCR1=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr1')
-    GO_PCR2=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr2')
-    GO_PCR3=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr3')
-fi
+# From Go client (envelope format, with .manifest wrapper)
+GO_NAMESPACE=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.name')
+GO_NONCE=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.nonce')
+GO_QUORUM_KEY=$(echo "$GO_OUTPUT" | jq -r '.manifest.namespace.quorumKey')
+GO_PIVOT_HASH=$(echo "$GO_OUTPUT" | jq -r '.manifest.pivot.hash')
+GO_RESTART=$(echo "$GO_OUTPUT" | jq -r '.manifest.pivot.restart')
+GO_MANIFEST_THRESHOLD=$(echo "$GO_OUTPUT" | jq -r '.manifest.manifestSet.threshold')
+GO_MANIFEST_MEMBERS=$(echo "$GO_OUTPUT" | jq -r '.manifest.manifestSet.members | length')
+GO_PCR0=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr0')
+GO_PCR1=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr1')
+GO_PCR2=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr2')
+GO_PCR3=$(echo "$GO_OUTPUT" | jq -r '.manifest.enclave.pcr3')
 
 echo "✓ Fields extracted from Go client"
 echo ""

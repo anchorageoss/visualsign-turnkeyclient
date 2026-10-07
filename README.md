@@ -314,7 +314,7 @@ Or use a local qos_client installation:
 
 The script:
 1. Runs `qos_client --json` in Docker container to get reference output (or local if specified)
-2. Runs `./visualsign-turnkey-client decode-manifest --json` to get our output
+2. Runs `./visualsign-turnkey-client decode-manifest envelope --json` to get our output
 3. Compares key fields (namespace, nonce, pivot hash, PCRs, etc.)
 4. Reports matches/mismatches with clear visual indicators
 
