@@ -8,7 +8,13 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 ## [Unreleased]
 
 ### Added
-- QOS JSON (v2) manifest envelope parsing, alongside the existing Borsh envelope: format is auto-detected (no `--api-version` change required), hashed via QOS canonical JSON per the [qos_json spec](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md), and rejects duplicate keys, unknown fields, and non-`"v2"` versions
+- QOS JSON (v2) manifest envelope parsing, hashed via QOS canonical JSON per the [qos_json spec](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md), and rejects duplicate keys, unknown fields, and non-`"v2"` versions
+
+### Removed
+- **Breaking:** legacy Borsh QoS manifest decode path. Only QOS JSON (v2) manifest envelopes are decoded (a raw manifest without an envelope is still hash-compared against UserData). Removed `manifest.ManifestVersion` (`V1`/`V2`), the V1 manifest types, `DecodeRawManifestFrom*`, `DecodeManifestFrom*`, `DetectEnvelopeFormat`, and `api.SignablePayloadResponse.ManifestVersion`. `DecodeManifestEnvelopeFrom*` no longer take a version argument.
+- `decode-manifest raw` subcommand and the `--api-version` flag on `decode-manifest envelope`
+- **Breaking:** `parse` JSON output no longer includes `manifestVersion`
+- **Breaking:** `verify --api-version` only accepts `v2`
 
 ### Changed
 - **Breaking:** `verify.Verify` now requires `VerifyRequest.Chain` and returns an error when it is empty, instead of silently defaulting to `CHAIN_SOLANA`
