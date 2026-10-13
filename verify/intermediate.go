@@ -21,7 +21,17 @@ import (
 
 // SolanaIntermediateSchemaVersion is the schema_version this client understands.
 // It matches SOLANA_INTERMEDIATE_SCHEMA_VERSION in the parser's intermediate.rs.
+//
+// Exactly this version is accepted (see DecodeSolanaIntermediateOutput), so a
+// parser and a consumer of this package must move to a new version together.
 const SolanaIntermediateSchemaVersion uint16 = 4
+
+// AddressTableLookupPlaceholder is the value the parser emits in place of a
+// pubkey for an account an instruction reads through an address lookup table
+// (intermediate.rs ADDRESS_TABLE_LOOKUP). It appears in
+// SolanaParsedInstructionDataIo.NamedAccounts and ProgramCallArgsJSON on the
+// IDL and native paths alike, and in SolanaJSONParsedInstructionDataIo.ParsedJSON.
+const AddressTableLookupPlaceholder = "ADDRESS_TABLE_LOOKUP"
 
 // RegisteredSource mirrors intermediate.rs RegisteredSource: where a program
 // ID was registered
@@ -121,12 +131,9 @@ type SolanaIntermediateOutput struct {
 }
 
 // SolanaIntermediateInstruction mirrors intermediate.rs SolanaIntermediateInstruction.
-// Field order matches the Rust struct exactly (Borsh is positional): IdlParseError
-// and RegisteredSource are appended after ParsedInstructionData because they
-// postdate the schema shipped on main. Borsh has no field-skipping, so this is a
-// breaking layout change -- a consumer built against the prior shape hard-fails to
-// decode rather than truncating cleanly. SolanaIntermediateSchemaVersion is what
-// actually carries compatibility here: any field change must bump it.
+// Field order matches the Rust struct exactly (Borsh is positional and has no
+// field-skipping). SolanaIntermediateSchemaVersion is what carries
+// compatibility here: any field change must bump it.
 type SolanaIntermediateInstruction struct {
 	ProgramKey          string                           `json:"programKey"`
 	Accounts            []SolanaAccount                  `json:"accounts"`
@@ -136,6 +143,12 @@ type SolanaIntermediateInstruction struct {
 	// parser's native decode (empty IdlSource and IdlHash; since
 	// schema_version 4). Nil when neither applies; IdlParseError and
 	// SolanaJSONParseError say why.
+	//
+	// An account the instruction reads through an address lookup table is
+	// not a pubkey: it is the literal placeholder AddressTableLookupPlaceholder
+	// in NamedAccounts, in ProgramCallArgsJSON, and in
+	// SolanaJSONParsedData.ParsedJSON. Check for it before treating a value
+	// as an address.
 	ParsedInstructionData *SolanaParsedInstructionDataIo `json:"parsedInstructionData,omitempty"`
 	IdlParseError         *SolanaIdlParseError           `json:"idlParseError,omitempty"`
 	RegisteredSource      RegisteredSource               `json:"registeredSource"`
@@ -147,7 +160,8 @@ type SolanaIntermediateInstruction struct {
 	// SolanaJSONParseError says why a Native program instruction has no
 	// ParsedInstructionData: the program has no native decoder (e.g. SPL Stake
 	// Pool), the decoder rejected the instruction, or its decode could not be
-	// mapped. Nil otherwise. Added in schema_version 3.
+	// mapped. Nil otherwise, including when an IDL decode already explains
+	// the instruction. Added in schema_version 3.
 	SolanaJSONParseError *string `json:"solanaJsonParseError,omitempty"`
 }
 
