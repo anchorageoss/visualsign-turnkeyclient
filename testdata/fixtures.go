@@ -23,15 +23,16 @@ var SolanaIntermediateSampleJSON []byte
 
 // SolanaIntermediateSimulatedSampleJSON captures a real mainnet Kamino Vault
 // transaction with its simulateTransaction result (18 simulated inner
-// instructions, a mix of Preset and Native RegisteredSource).
+// instructions, a mix of Preset and Native RegisteredSource; the Native
+// RPC-parsed SPL Token calls also carry a native ParsedInstructionData).
 //
 //go:embed solana_intermediate_simulated_sample.json
 var SolanaIntermediateSimulatedSampleJSON []byte
 
-// SolanaIntermediateJSONParsedSampleJSON is real parser_cli v3 output for a
-// Compute Budget instruction plus a System transfer: the first carries
-// SolanaJSONParseError, the second SolanaJSONParsedData. Unsigned; it pins the
-// decode layout only.
+// SolanaIntermediateJSONParsedSampleJSON is real parser_cli v4 output for a
+// Compute Budget instruction plus a System transfer: both carry
+// SolanaJSONParsedData and a native ParsedInstructionData (empty IdlSource).
+// Unsigned; it pins the decode layout only.
 //
 //go:embed solana_intermediate_json_parsed_sample.json
 var SolanaIntermediateJSONParsedSampleJSON []byte

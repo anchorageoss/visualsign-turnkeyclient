@@ -21,7 +21,17 @@ import (
 
 // SolanaIntermediateSchemaVersion is the schema_version this client understands.
 // It matches SOLANA_INTERMEDIATE_SCHEMA_VERSION in the parser's intermediate.rs.
-const SolanaIntermediateSchemaVersion uint16 = 3
+//
+// Exactly this version is accepted (see DecodeSolanaIntermediateOutput), so a
+// parser and a consumer of this package must move to a new version together.
+const SolanaIntermediateSchemaVersion uint16 = 4
+
+// AddressTableLookupPlaceholder is the value the parser emits in place of a
+// pubkey for an account an instruction reads through an address lookup table
+// (intermediate.rs ADDRESS_TABLE_LOOKUP). It appears in
+// SolanaParsedInstructionDataIo.NamedAccounts and ProgramCallArgsJSON on the
+// IDL and native paths alike, and in SolanaJSONParsedInstructionDataIo.ParsedJSON.
+const AddressTableLookupPlaceholder = "ADDRESS_TABLE_LOOKUP"
 
 // RegisteredSource mirrors intermediate.rs RegisteredSource: where a program
 // ID was registered
@@ -121,45 +131,60 @@ type SolanaIntermediateOutput struct {
 }
 
 // SolanaIntermediateInstruction mirrors intermediate.rs SolanaIntermediateInstruction.
-// Field order matches the Rust struct exactly (Borsh is positional): IdlParseError
-// and RegisteredSource are appended after ParsedInstructionData because they
-// postdate the schema shipped on main. Borsh has no field-skipping, so this is a
-// breaking layout change -- a consumer built against the prior shape hard-fails to
-// decode rather than truncating cleanly. SolanaIntermediateSchemaVersion is what
-// actually carries compatibility here: any field change must bump it.
+// Field order matches the Rust struct exactly (Borsh is positional and has no
+// field-skipping). SolanaIntermediateSchemaVersion is what carries
+// compatibility here: any field change must bump it.
 type SolanaIntermediateInstruction struct {
-	ProgramKey            string                           `json:"programKey"`
-	Accounts              []SolanaAccount                  `json:"accounts"`
-	InstructionDataHex    string                           `json:"instructionDataHex"`
-	AddressTableLookups   []SolanaSingleAddressTableLookup `json:"addressTableLookups"`
-	ParsedInstructionData *SolanaParsedInstructionDataIo   `json:"parsedInstructionData,omitempty"`
-	IdlParseError         *SolanaIdlParseError             `json:"idlParseError,omitempty"`
-	RegisteredSource      RegisteredSource                 `json:"registeredSource"`
-	// SolanaJSONParsedData is the decode by Solana's own jsonParsed decoder
-	// (solana_transaction_status), run by the parser, of a Native program
-	// instruction it supports (System, SPL Token/Token-2022, ATA, Memo, Stake,
-	// Vote, Address Lookup Table, the BPF loaders). Nil for non-Native
-	// programs, and when SolanaJSONParseError is set. Added in schema_version 3.
+	ProgramKey          string                           `json:"programKey"`
+	Accounts            []SolanaAccount                  `json:"accounts"`
+	InstructionDataHex  string                           `json:"instructionDataHex"`
+	AddressTableLookups []SolanaSingleAddressTableLookup `json:"addressTableLookups"`
+	// ParsedInstructionData is the IDL decode, or for a Native program the
+	// parser's native decode (empty IdlSource and IdlHash; since
+	// schema_version 4). Nil when neither applies; IdlParseError and
+	// SolanaJSONParseError say why.
+	//
+	// An account the instruction reads through an address lookup table is
+	// not a pubkey: it is the literal placeholder AddressTableLookupPlaceholder
+	// in NamedAccounts, in ProgramCallArgsJSON, and in
+	// SolanaJSONParsedData.ParsedJSON. Check for it before treating a value
+	// as an address.
+	ParsedInstructionData *SolanaParsedInstructionDataIo `json:"parsedInstructionData,omitempty"`
+	IdlParseError         *SolanaIdlParseError           `json:"idlParseError,omitempty"`
+	RegisteredSource      RegisteredSource               `json:"registeredSource"`
+	// SolanaJSONParsedData is Solana's own jsonParsed decode
+	// (solana_transaction_status) of a Native program instruction, run by the
+	// parser, or the parser's own decode for Compute Budget. Nil for other
+	// programs or on error. Added in schema_version 3.
 	SolanaJSONParsedData *SolanaJSONParsedInstructionDataIo `json:"solanaJsonParsedData,omitempty"`
 	// SolanaJSONParseError says why a Native program instruction has no
-	// SolanaJSONParsedData: the decoder does not support the program (e.g.
-	// Compute Budget, SPL Stake Pool), the instruction reads an account through
-	// an address lookup table, or the decoder rejected it. Nil when it was
-	// decoded or the program is not Native. Added in schema_version 3.
+	// ParsedInstructionData: the program has no native decoder (e.g. SPL Stake
+	// Pool), the decoder rejected the instruction, or its decode could not be
+	// mapped. Nil otherwise, including when an IDL decode already explains
+	// the instruction. Added in schema_version 3.
 	SolanaJSONParseError *string `json:"solanaJsonParseError,omitempty"`
 }
 
 // SolanaSimulatedInstruction mirrors intermediate.rs SolanaSimulatedInstruction.
 type SolanaSimulatedInstruction struct {
-	Index                 uint32                            `json:"index"`
-	StackHeight           uint32                            `json:"stackHeight"`
-	ProgramKey            string                            `json:"programKey"`
-	Accounts              []string                          `json:"accounts"`
-	InstructionDataHex    string                            `json:"instructionDataHex"`
-	RegisteredSource      RegisteredSource                  `json:"registeredSource"`
-	ParsedInstructionData *SolanaParsedInstructionDataIo    `json:"parsedInstructionData,omitempty"`
-	SolanaRpcParsedData   *SolanaRpcParsedInstructionDataIo `json:"solanaRpcParsedData,omitempty"`
-	IdlParseError         *SolanaIdlParseError              `json:"idlParseError,omitempty"`
+	Index              uint32           `json:"index"`
+	StackHeight        uint32           `json:"stackHeight"`
+	ProgramKey         string           `json:"programKey"`
+	Accounts           []string         `json:"accounts"`
+	InstructionDataHex string           `json:"instructionDataHex"`
+	RegisteredSource   RegisteredSource `json:"registeredSource"`
+	// ParsedInstructionData is the IDL decode, or for a Native program the
+	// same native decode a top-level instruction gets (since schema_version
+	// 4). Nil when neither applies.
+	ParsedInstructionData *SolanaParsedInstructionDataIo `json:"parsedInstructionData,omitempty"`
+	// SolanaRpcParsedData is the RPC's own jsonParsed decode, for the programs
+	// it returns that way. Nil for partially-decoded instructions.
+	SolanaRpcParsedData *SolanaRpcParsedInstructionDataIo `json:"solanaRpcParsedData,omitempty"`
+	IdlParseError       *SolanaIdlParseError              `json:"idlParseError,omitempty"`
+	// SolanaJSONParseError says why a Native program instruction has no
+	// ParsedInstructionData, as on SolanaIntermediateInstruction. Nil
+	// otherwise. Added in schema_version 4.
+	SolanaJSONParseError *string `json:"solanaJsonParseError,omitempty"`
 }
 
 // SolanaAccount mirrors intermediate.rs SolanaAccount.
@@ -205,7 +230,8 @@ type SolanaAddressTableLookup struct {
 // SolanaParsedInstructionDataIo mirrors intermediate.rs SolanaParsedInstructionDataIo.
 // NamedAccounts is a BTreeMap<String,String> on the Rust side; Borsh encodes it
 // as a length-prefixed, key-sorted map, which decodes cleanly into a Go map
-// (iteration order is irrelevant on decode).
+// (iteration order is irrelevant on decode). IdlSource and IdlHash are empty
+// for a native decode (a Native program instruction, schema_version 4+).
 type SolanaParsedInstructionDataIo struct {
 	InstructionName     string            `json:"instructionName"`
 	Discriminator       string            `json:"discriminator"`
@@ -348,6 +374,7 @@ func normalizeOptionals(out *SolanaIntermediateOutput) {
 		if e != nil && e.isZero() {
 			out.SimulatedInstructions[i].IdlParseError = nil
 		}
+		out.SimulatedInstructions[i].SolanaJSONParseError = nilIfEmpty(out.SimulatedInstructions[i].SolanaJSONParseError)
 	}
 	for i := range out.SplTransfers {
 		t := &out.SplTransfers[i]
