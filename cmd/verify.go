@@ -170,6 +170,13 @@ func runVerifyCommand(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("verification failed: %w", err)
 	}
 
+	return printVerifyResult(result, debug)
+}
+
+// printVerifyResult writes the step-by-step report to stderr and the JSON
+// result to stdout. Shared by verify and verify-response so both commands
+// report identically.
+func printVerifyResult(result *verify.VerifyResult, debug bool) error {
 	// Create formatter for output
 	formatter := verify.NewFormatter()
 
