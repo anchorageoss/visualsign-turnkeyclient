@@ -18,6 +18,7 @@ func main() {
 		Commands: []*cli.Command{
 			cmd.ParseCommand(),
 			cmd.VerifyCommand(),
+			cmd.VerifyResponseCommand(),
 			cmd.DecodeCommand(),
 			cmd.AttestationCommand(),
 		},
