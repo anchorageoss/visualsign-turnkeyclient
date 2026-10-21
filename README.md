@@ -136,7 +136,7 @@ Verify a response you already have, with no API call and no API key. It runs the
   --pcrs 0:<hex>,1:<hex>
 ```
 
-`--response-file` takes the raw JSON response body (`-` reads stdin). `--unsigned-payload` and `--chain-metadata` must be the request inputs the response was produced for: the payload digests are recomputed from them and compared with the ones the enclave signed. `--qos-manifest-hex`, `--pivot-binary-hash-hex`, `--save-qos-manifest`, `--pcrs` and `--debug` behave as in `verify`.
+`--response-file` takes the raw JSON response body (`-` reads stdin). `--unsigned-payload` and `--chain-metadata` must be the request inputs the response was produced for: the payload digests are recomputed from them and compared with the ones the enclave signed. `--unsigned-payload` must be non-empty, and a response without an `inputPayloadDigest` is rejected rather than verified unbound. `--qos-manifest-hex`, `--pivot-binary-hash-hex`, `--save-qos-manifest`, `--pcrs` and `--debug` behave as in `verify`.
 
 Like `verify`, it skips the attestation certificate timestamp check, so an old capture still verifies. Pin PCRs with `--pcrs` to bind the response to a known enclave image.
 

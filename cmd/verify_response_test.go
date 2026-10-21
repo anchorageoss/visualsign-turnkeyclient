@@ -68,6 +68,28 @@ func TestVerifyResponseRejectsWrongRequestPayload(t *testing.T) {
 	require.ErrorContains(t, err, "verification failed")
 }
 
+func TestVerifyResponseRejectsEmptyUnsignedPayload(t *testing.T) {
+	path := writeTempResponse(t, testdata.TVCResponseNSMJSON)
+	err := runVerifyResponse(t, "--response-file", path, "--unsigned-payload", "")
+	require.ErrorContains(t, err, "--unsigned-payload must not be empty")
+}
+
+func TestVerifyResponseRejectsMissingInputPayloadDigest(t *testing.T) {
+	var captured map[string]any
+	require.NoError(t, json.Unmarshal(testdata.TVCResponseNSMJSON, &captured))
+	payload := captured["response"].(map[string]any)["parsedTransaction"].(map[string]any)["payload"].(map[string]any)
+	require.NotEmpty(t, payload["inputPayloadDigest"])
+	delete(payload, "inputPayloadDigest")
+	body, err := json.Marshal(captured)
+	require.NoError(t, err)
+
+	err = runVerifyResponse(t,
+		"--response-file", writeTempResponse(t, body),
+		"--unsigned-payload", testdata.TVCResponseNSMUnsignedPayload,
+	)
+	require.ErrorContains(t, err, "response has no inputPayloadDigest")
+}
+
 func TestVerifyResponseRejectsTamperedSignature(t *testing.T) {
 	var captured struct {
 		Response struct {

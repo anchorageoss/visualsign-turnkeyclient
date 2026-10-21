@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -97,6 +98,14 @@ func runVerifyResponseCommand(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to parse PCR specification: %w", err)
 	}
 
+	// VerifyResponse compares the input payload digest only when both the
+	// payload and the response's digest are present. This command promises the
+	// response is bound to --unsigned-payload, so require both.
+	unsignedPayload := cmd.String("unsigned-payload")
+	if unsignedPayload == "" {
+		return errors.New("--unsigned-payload must not be empty")
+	}
+
 	body, err := readResponseFile(cmd.String("response-file"), os.Stdin)
 	if err != nil {
 		return err
@@ -104,6 +113,9 @@ func runVerifyResponseCommand(ctx context.Context, cmd *cli.Command) error {
 	response, err := api.ParseSignablePayloadResponse(body)
 	if err != nil {
 		return fmt.Errorf("failed to parse response: %w", err)
+	}
+	if response.InputPayloadDigest == "" {
+		return errors.New("response has no inputPayloadDigest, so it cannot be bound to --unsigned-payload")
 	}
 
 	var chainMetadata *api.RequestChainMetadata
@@ -121,7 +133,7 @@ func runVerifyResponseCommand(ctx context.Context, cmd *cli.Command) error {
 	service := verify.NewService(nil, verifier)
 
 	result, err := service.VerifyResponse(ctx, response, &verify.VerifyResponseRequest{
-		UnsignedPayload:    cmd.String("unsigned-payload"),
+		UnsignedPayload:    unsignedPayload,
 		QosManifestHex:     cmd.String("qos-manifest-hex"),
 		PivotBinaryHashHex: cmd.String("pivot-binary-hash-hex"),
 		SaveManifestPath:   cmd.String("save-qos-manifest"),
