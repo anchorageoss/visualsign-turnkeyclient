@@ -489,6 +489,10 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 		return fmt.Errorf("failed to decode QoS manifest envelope: %w", envelopeErr)
 	}
 
+	if len(userData) == 0 {
+		return errors.New("attestation UserData is empty: cannot bind QoS manifest")
+	}
+
 	if decodedManifest != nil {
 		result.Manifest = decodedManifest
 	}
@@ -506,48 +510,46 @@ func (s *Service) processManifest(response *api.SignablePayloadResponse, userDat
 	}
 
 	// Compare against UserData
-	if len(userData) > 0 {
-		userDataHex := hex.EncodeToString(userData)
-		serializationResult.UserDataHash = userDataHex
+	userDataHex := hex.EncodeToString(userData)
+	serializationResult.UserDataHash = userDataHex
 
-		// A JSON manifest binds exclusively to its QOS canonical JSON
-		// (reserialized) hash: accepting a raw hash match here would let a
-		// non-canonical encoding of the same manifest satisfy the binding,
-		// defeating the point of canonicalizing before hashing. So the
-		// raw-hash comparison only applies when there's no envelope to
-		// canonicalize against in the first place.
-		reserializedMatches := reserializedManifestHash != "" && reserializedManifestHash == userDataHex
-		rawManifestMatches := response.QosManifestEnvelopeB64 == "" && rawManifestHash != "" && rawManifestHash == userDataHex
-		matches := reserializedMatches || rawManifestMatches
-		var matchedVia string
-		switch {
-		case reserializedMatches:
-			matchedVia = "canonical"
-		case rawManifestMatches:
-			matchedVia = "raw"
-		}
-
-		if matches {
-			serializationResult.Matches = true
-			serializationResult.MatchedVia = matchedVia
-		} else {
-			serializationResult.ReserializationNeeded = true
-			mismatchMsg := fmt.Sprintf(
-				"manifest hash mismatch: boot-time %s", userDataHex)
-			if response.QosManifestEnvelopeB64 == "" && rawManifestHash != "" {
-				mismatchMsg += fmt.Sprintf(" != raw-manifest %s", rawManifestHash)
-			}
-			if reserializedManifestHash != "" {
-				mismatchMsg += fmt.Sprintf(" != reserialized %s", reserializedManifestHash)
-			}
-			serializationResult.Error = mismatchMsg
-			return errors.New(serializationResult.Error)
-		}
-
-		// Store result hashes for output
-		result.QosManifestHash = userDataHex
-		result.PivotBinaryHash = userDataHex
+	// A JSON manifest binds exclusively to its QOS canonical JSON
+	// (reserialized) hash: accepting a raw hash match here would let a
+	// non-canonical encoding of the same manifest satisfy the binding,
+	// defeating the point of canonicalizing before hashing. So the
+	// raw-hash comparison only applies when there's no envelope to
+	// canonicalize against in the first place.
+	reserializedMatches := reserializedManifestHash != "" && reserializedManifestHash == userDataHex
+	rawManifestMatches := response.QosManifestEnvelopeB64 == "" && rawManifestHash != "" && rawManifestHash == userDataHex
+	matches := reserializedMatches || rawManifestMatches
+	var matchedVia string
+	switch {
+	case reserializedMatches:
+		matchedVia = "canonical"
+	case rawManifestMatches:
+		matchedVia = "raw"
 	}
+
+	if matches {
+		serializationResult.Matches = true
+		serializationResult.MatchedVia = matchedVia
+	} else {
+		serializationResult.ReserializationNeeded = true
+		mismatchMsg := fmt.Sprintf(
+			"manifest hash mismatch: boot-time %s", userDataHex)
+		if response.QosManifestEnvelopeB64 == "" && rawManifestHash != "" {
+			mismatchMsg += fmt.Sprintf(" != raw-manifest %s", rawManifestHash)
+		}
+		if reserializedManifestHash != "" {
+			mismatchMsg += fmt.Sprintf(" != reserialized %s", reserializedManifestHash)
+		}
+		serializationResult.Error = mismatchMsg
+		return errors.New(serializationResult.Error)
+	}
+
+	// Store result hashes for output
+	result.QosManifestHash = userDataHex
+	result.PivotBinaryHash = userDataHex
 
 	result.ManifestReserialization = serializationResult
 	return nil
