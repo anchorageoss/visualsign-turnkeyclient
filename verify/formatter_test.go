@@ -55,6 +55,12 @@ func TestFormatVerificationResult_IntermediateOutput(t *testing.T) {
 		out := formatter.FormatVerificationResult(&VerifyResult{IntermediateOutput: io})
 		require.Same(t, io, out["intermediateOutput"])
 	})
+
+	t.Run("present when NEAR decoded", func(t *testing.T) {
+		io := &NearIntermediateOutput{SchemaVersion: NearIntermediateSchemaVersion}
+		out := formatter.FormatVerificationResult(&VerifyResult{NearIntermediateOutput: io})
+		require.Same(t, io, out["intermediateOutput"])
+	})
 }
 
 func TestFormatPCRValues(t *testing.T) {

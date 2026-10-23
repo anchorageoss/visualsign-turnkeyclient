@@ -246,6 +246,10 @@ func (f *Formatter) FormatVerificationResult(result *VerifyResult) map[string]in
 		output["intermediateOutput"] = result.IntermediateOutput
 	}
 
+	if result.NearIntermediateOutput != nil {
+		output["intermediateOutput"] = result.NearIntermediateOutput
+	}
+
 	// Add PCR validation results if present
 	if len(result.PCRValidationResults) > 0 {
 		pcrResults := make([]map[string]interface{}, len(result.PCRValidationResults))

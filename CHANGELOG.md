@@ -8,6 +8,7 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 ## [Unreleased]
 
 ### Added
+- NEAR support in `verify`: `--chain CHAIN_NEAR` selects the NEAR decoder for `--include-intermediate-output`, and `--chain-metadata` accepts a `near` variant carrying signed per-asset token mappings keyed by NEAR Intents asset id
 - QOS JSON (v2) manifest envelope parsing, hashed via QOS canonical JSON per the [qos_json spec](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md), and rejects duplicate keys, unknown fields, and non-`"v2"` versions
 
 ### Removed
@@ -17,6 +18,7 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 - **Breaking:** `verify --api-version` only accepts `v2`
 
 ### Changed
+- The intermediate-output decoder is selected by `VerifyResponseRequest.Chain`. Borsh carries no chain tag of its own, so `VerifyResponse` now requires `Chain` to decode a non-empty intermediate output rather than assuming Solana
 - **Breaking:** `verify.Verify` now requires `VerifyRequest.Chain` and returns an error when it is empty, instead of silently defaulting to `CHAIN_SOLANA`
 - **Breaking:** `verify` fails when a QoS manifest is present but the boot attestation UserData is empty, instead of skipping the manifest hash binding
 - Use commit-count-based auto-versioning derived from git history
