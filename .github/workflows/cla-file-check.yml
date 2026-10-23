@@ -36,7 +36,9 @@ jobs:
             echo "❌ CLA file not found."
             echo "is_signed=false" >> $GITHUB_OUTPUT
             exit 1
-          elif grep -v '^#' .cla-signed-users | grep -q -w "${{ github.event.pull_request.user.login }}"; then
+          # Exact-line match; `grep -w` treats `-` as a word break, so `keegan`
+          # would pass because `keegan-rhodes-anchor` is listed.
+          elif grep -v '^#' .cla-signed-users | grep -Fxq "${{ github.event.pull_request.user.login }}"; then
             echo "✅ User found in .cla-signed-users file."
             echo "is_signed=true" >> $GITHUB_OUTPUT
           else
@@ -51,7 +53,7 @@ jobs:
 
           It looks like this is your first time contributing. To get this PR merged, please review our Contributor License Agreement (CLA) here: **${{ env.CLA_URL }}**
 
-          Once you have reviewed the agreement, a maintainer (${{ env.MAINTAINER_TAG }}) will need to approve your addition to our contributors list by commenting \`/approve-cla\` on this PR. Thank you!"
+          Once you have reviewed the agreement, a maintainer (${{ env.MAINTAINER_TAG }}) will need to approve your addition to our contributors list by commenting \`/approve-cla <org>\` (for example \`/approve-cla Anchorage\`) on this PR. Thank you!"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

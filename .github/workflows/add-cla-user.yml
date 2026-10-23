@@ -15,13 +15,10 @@ permissions:
   contents: write
   pull-requests: write
 
-# Serialize runs: this workflow pushes to the shared `cla-signers-batch` branch
-# and creates/updates a shared batch PR. Two near-simultaneous `/approve-cla`
-# comments would otherwise race on the push. Don't cancel in-progress runs --
-# each approval must complete so no signer is dropped.
-concurrency:
-  group: cla-signers-batch
-  cancel-in-progress: false
+# No `concurrency:` group: GitHub keeps only one pending run per group and
+# cancels older pending ones, which would silently drop a signer during a burst
+# of approvals. Instead, concurrent runs race on the shared `cla-signers-batch`
+# branch and the loser rebuilds its commit on the new tip and retries the push.
 
 # Untrusted text (the comment body) only ever reaches shell through `env:`,
 # never through `${{ }}` inside `run:`, so a comment can't inject commands.
@@ -124,22 +121,26 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          MAIN_SHA=$(git rev-parse HEAD)
 
-          if git ls-remote --exit-code --heads origin "$BATCH_BRANCH" > /dev/null 2>&1; then
-            git fetch origin "$BATCH_BRANCH"
-            git checkout "$BATCH_BRANCH"
-          else
-            git checkout -b "$BATCH_BRANCH"
-          fi
+          # Another run may push the batch branch between our fetch and push;
+          # the non-fast-forward push then fails and we redo it on the new tip.
+          for ATTEMPT in 1 2 3 4 5; do
+            if git ls-remote --exit-code --heads origin "$BATCH_BRANCH" > /dev/null 2>&1; then
+              git fetch origin "$BATCH_BRANCH"
+              git checkout -B "$BATCH_BRANCH" FETCH_HEAD
+            else
+              git checkout -B "$BATCH_BRANCH" "$MAIN_SHA"
+            fi
 
-          if grep -v '^#' .cla-signed-users | grep -Fxq "$AUTHOR_USERNAME"; then
-            gh pr comment "$PR_NUMBER" --body "ℹ️ @${AUTHOR_USERNAME} is already pending approval in the CLA signers batch."
-            exit 0
-          fi
+            if grep -v '^#' .cla-signed-users | grep -Fxq "$AUTHOR_USERNAME"; then
+              gh pr comment "$PR_NUMBER" --body "ℹ️ @${AUTHOR_USERNAME} is already pending approval in the CLA signers batch."
+              exit 0
+            fi
 
-          # Insert the author at the end of the org's section, or start a new
-          # `# <org>` section at the end of the file. Other lines are untouched.
-          python3 - <<'PY'
+            # Insert the author at the end of the org's section, or start a new
+            # `# <org>` section at the end of the file. Other lines are untouched.
+            python3 - <<'PY'
           import os
           path, user, org = ".cla-signed-users", os.environ["AUTHOR_USERNAME"], os.environ["ORG"].strip()
           lines = open(path).read().splitlines()
@@ -159,12 +160,20 @@ jobs:
           open(path, "w").write("\n".join(lines) + "\n")
           PY
 
-          git add .cla-signed-users
-          git commit -m "chore: Add @${AUTHOR_USERNAME} to CLA signers list (${ORG})
+            git add .cla-signed-users
+            git commit -m "chore: Add @${AUTHOR_USERNAME} to CLA signers list (${ORG})
 
           Approved by: @${COMMENTER}
           Related PR: #${PR_NUMBER}"
-          git push origin "$BATCH_BRANCH"
+            if git push origin "$BATCH_BRANCH"; then
+              break
+            fi
+            if [ "$ATTEMPT" -eq 5 ]; then
+              echo "::error::Could not push to $BATCH_BRANCH after $ATTEMPT attempts"
+              exit 1
+            fi
+            sleep $((ATTEMPT * 3))
+          done
 
           EXISTING_PR=$(gh pr list --head "$BATCH_BRANCH" --base main --json number --jq '.[0].number // empty')
           if [ -n "$EXISTING_PR" ]; then
@@ -172,6 +181,7 @@ jobs:
             gh pr comment "$PR_NUMBER" --body "✅ @${AUTHOR_USERNAME} has been added under ${ORG} to the CLA signers batch PR #${EXISTING_PR} by @${COMMENTER}. The CLA check will pass once the batch PR is merged."
           else
             # `gh pr create` prints the PR URL (…/pull/<n>); take the trailing number.
+            # It fails if a concurrent run opened the batch PR first; fall back below.
             NEW_PR=$(gh pr create \
               --title "chore: Add CLA signers batch" \
               --body "This PR adds new CLA signers in batch to comply with repository rules.
@@ -183,6 +193,11 @@ jobs:
               --head "$BATCH_BRANCH" \
               --base main \
               --label "cla" \
-              | grep -oE '[0-9]+$' | head -1)
-            gh pr comment "$PR_NUMBER" --body "✅ @${AUTHOR_USERNAME} has been added under ${ORG} to a new CLA signers batch PR #${NEW_PR} by @${COMMENTER}. The CLA check will pass once the batch PR is merged."
+              | grep -oE '[0-9]+$' | head -1) || true
+            if [ -n "$NEW_PR" ]; then
+              gh pr comment "$PR_NUMBER" --body "✅ @${AUTHOR_USERNAME} has been added under ${ORG} to a new CLA signers batch PR #${NEW_PR} by @${COMMENTER}. The CLA check will pass once the batch PR is merged."
+            else
+              EXISTING_PR=$(gh pr list --head "$BATCH_BRANCH" --base main --json number --jq '.[0].number // empty')
+              gh pr comment "$PR_NUMBER" --body "✅ @${AUTHOR_USERNAME} has been added under ${ORG} to the CLA signers batch PR #${EXISTING_PR} by @${COMMENTER}. The CLA check will pass once the batch PR is merged."
+            fi
           fi
