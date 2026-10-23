@@ -9,7 +9,7 @@ on:
 jobs:
   check:
     name: Check Dependencies and Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     permissions:
       contents: read
