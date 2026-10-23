@@ -181,8 +181,13 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		return nil, fmt.Errorf("turnkey API returned non-OK status: %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Parse response
-	var turnkeyResp TurnkeyVisualSignResponse
+	// Parse response. bootProof is held raw here (the shallower field shadows
+	// the embedded one) so a verifier-specific bootProof shape can't fail the
+	// envelope decode before RawAttestation is captured.
+	var turnkeyResp struct {
+		TurnkeyVisualSignResponse
+		BootProof json.RawMessage `json:"bootProof,omitempty"`
+	}
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
@@ -191,6 +196,17 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	err = json.Unmarshal(bodyBytes, &turnkeyResp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Legacy Turnkey boot proof fields. A bootProof that isn't in the Turnkey
+	// shape leaves them empty; the legacy verifier then rejects the missing
+	// boot attestation, while a custom verifier still gets RawAttestation.
+	var bootProof *TurnkeyBootProof
+	if len(turnkeyResp.BootProof) > 0 {
+		var bp TurnkeyBootProof
+		if json.Unmarshal(turnkeyResp.BootProof, &bp) == nil {
+			bootProof = &bp
+		}
 	}
 
 	// Capture the raw sibling attestation field (verifier-agnostic). Decode the
@@ -233,19 +249,19 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	}
 
 	// Extract boot attestation from bootProof if available
-	if turnkeyResp.BootProof != nil && turnkeyResp.BootProof.AwsAttestationDocB64 != "" {
-		attestations[BootAttestationKey] = turnkeyResp.BootProof.AwsAttestationDocB64
+	if bootProof != nil && bootProof.AwsAttestationDocB64 != "" {
+		attestations[BootAttestationKey] = bootProof.AwsAttestationDocB64
 	}
 
 	// Extract boot proof fields if available
 	var qosManifestB64, qosManifestEnvelopeB64 string
 	var ephemeralPublicKeyHex, enclaveApp, deploymentLabel string
-	if turnkeyResp.BootProof != nil {
-		qosManifestB64 = turnkeyResp.BootProof.QosManifestB64
-		qosManifestEnvelopeB64 = turnkeyResp.BootProof.QosManifestEnvelopeB64
-		ephemeralPublicKeyHex = turnkeyResp.BootProof.EphemeralPublicKeyHex
-		enclaveApp = turnkeyResp.BootProof.EnclaveApp
-		deploymentLabel = turnkeyResp.BootProof.DeploymentLabel
+	if bootProof != nil {
+		qosManifestB64 = bootProof.QosManifestB64
+		qosManifestEnvelopeB64 = bootProof.QosManifestEnvelopeB64
+		ephemeralPublicKeyHex = bootProof.EphemeralPublicKeyHex
+		enclaveApp = bootProof.EnclaveApp
+		deploymentLabel = bootProof.DeploymentLabel
 	}
 
 	return &SignablePayloadResponse{

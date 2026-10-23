@@ -101,3 +101,37 @@ func TestCreateSignablePayload_RawAttestation_Absent(t *testing.T) {
 	require.NotNil(t, result)
 	require.Nil(t, result.RawAttestation)
 }
+
+// TestCreateSignablePayload_RawAttestation_NonTurnkeyBootProof verifies that a
+// bootProof not in the Turnkey shape still decodes: RawAttestation carries it
+// verbatim and the legacy boot proof fields stay empty.
+func TestCreateSignablePayload_RawAttestation_NonTurnkeyBootProof(t *testing.T) {
+	for name, bootProof := range map[string]string{
+		"string":            `"opaque"`,
+		"non-string member": `{"enclaveApp":7}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			canned := `{"response":{"parsedTransaction":{"payload":{"signablePayload":"s","inputPayloadDigest":"ipd"}}},"bootProof":` + bootProof + `}`
+
+			handler := &recordingHandler{resp: []byte(canned)}
+			srv := httptest.NewServer(handler)
+			defer srv.Close()
+
+			client := &Client{
+				HostURI:              srv.URL,
+				HTTPClient:           http.DefaultClient,
+				VisualSignAPIVersion: "v2",
+			}
+
+			result, err := client.CreateSignablePayload(context.Background(), &CreateSignablePayloadRequest{
+				UnsignedPayload: "p",
+				Chain:           "CHAIN_ETHEREUM",
+			})
+			require.NoError(t, err)
+			require.Equal(t, "ipd", result.InputPayloadDigest)
+			require.JSONEq(t, bootProof, string(result.RawAttestation))
+			require.Empty(t, result.EnclaveApp)
+			require.NotContains(t, result.Attestations, BootAttestationKey)
+		})
+	}
+}
