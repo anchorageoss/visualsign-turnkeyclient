@@ -125,6 +125,47 @@ Perform end-to-end verification of a transaction:
 - `--pivot-binary-hash-hex <hex>`: Hash of the binary that QoS runs after initrd is booted
 - `--save-qos-manifest <path>`: Save the QoS manifest envelope to a binary file
 
+### Verify Response Command
+
+Verify a response you already have, with no API call and no API key. It runs the same attestation, manifest, digest and signature checks as `verify`. This is for a captured response, for a backend whose responses cannot be fetched with a Turnkey stamp (for example one behind its own payment or auth layer), and for tests and CI.
+
+```bash
+./bin/visualsign-turnkeyclient verify-response \
+  --response-file response.json \
+  --unsigned-payload <the payload the response was produced for> \
+  --pcrs 0:<hex>,1:<hex>
+```
+
+`--response-file` takes the raw JSON response body (`-` reads stdin). `--unsigned-payload` and `--chain-metadata` must be the request inputs the response was produced for: the payload digests are recomputed from them and compared with the ones the enclave signed. `--unsigned-payload` must be non-empty, and a response without an `inputPayloadDigest` is rejected rather than verified unbound. `--qos-manifest-hex`, `--pivot-binary-hash-hex`, `--save-qos-manifest`, `--pcrs` and `--debug` behave as in `verify`.
+
+Like `verify`, it skips the attestation certificate timestamp check, so an old capture still verifies. Pin PCRs with `--pcrs` to bind the response to a known enclave image.
+
+### Using as a Library
+
+The same checks are available without the CLI:
+
+```go
+import (
+	nitroverifier "github.com/anchorageoss/awsnitroverifier"
+	"github.com/anchorageoss/visualsign-turnkeyclient/api"
+	"github.com/anchorageoss/visualsign-turnkeyclient/verify"
+)
+
+response, err := api.ParseSignablePayloadResponse(body) // raw JSON response body
+if err != nil {
+	return err
+}
+verifier := nitroverifier.NewVerifier(nitroverifier.AWSNitroVerifierOptions{
+	SkipTimestampCheck: true, // set false to also require a currently valid certificate
+})
+service := verify.NewService(nil, verifier) // no API client needed for VerifyResponse
+result, err := service.VerifyResponse(ctx, response, &verify.VerifyResponseRequest{
+	UnsignedPayload: unsignedPayload, // the request input the response was produced for
+})
+```
+
+`result.PublicKeyHex`, `result.PCRs` and `result.Manifest` describe the enclave that produced the response.
+
 ### Decode Manifest Command
 
 Decode and display a QOS JSON (v2) manifest envelope from a file or base64 string. The legacy Borsh format and the `decode-manifest raw` subcommand were removed.

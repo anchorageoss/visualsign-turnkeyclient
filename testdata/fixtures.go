@@ -63,3 +63,16 @@ var QosManifestEnvelopeV2JSON []byte
 //
 //go:embed qos_manifest_envelope_v2_canonical.json
 var QosManifestEnvelopeV2CanonicalJSON []byte
+
+// TVCResponseNSMJSON is a captured response from a parser_http_server pivot
+// running on a throwaway Turnkey TVC app with --boot-proof-source nsm: a real Nitro
+// attestation document, QoS manifest and envelope, and the enclave-signed
+// parse of TVCResponseNSMUnsignedPayload. Used to exercise offline
+// verification end to end.
+//
+//go:embed tvc_response_nsm.json
+var TVCResponseNSMJSON []byte
+
+// TVCResponseNSMUnsignedPayload is the Ethereum transaction TVCResponseNSMJSON
+// was produced for.
+const TVCResponseNSMUnsignedPayload = "0xf86c808504a817c800825208943535353535353535353535353535353535353535880de0b6b3a76400008025a028ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276a067cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83"

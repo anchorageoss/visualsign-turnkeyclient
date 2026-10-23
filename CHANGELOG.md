@@ -8,6 +8,8 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 ## [Unreleased]
 
 ### Added
+- `verify-response` command: runs the `verify` checks on a saved response body with no API call or API key (`--response-file`, `-` for stdin)
+- `api.ParseSignablePayloadResponse` converts a raw Turnkey response body into a `SignablePayloadResponse` for `verify.Service.VerifyResponse`, so responses obtained out-of-band can be verified as a library; `Client.CreateSignablePayload` now uses it
 - QOS JSON (v2) manifest envelope parsing, hashed via QOS canonical JSON per the [qos_json spec](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md), and rejects duplicate keys, unknown fields, and non-`"v2"` versions
 
 ### Removed
