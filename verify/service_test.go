@@ -17,7 +17,6 @@ import (
 	"github.com/anchorageoss/visualsign-turnkeyclient/api"
 	"github.com/anchorageoss/visualsign-turnkeyclient/manifest"
 	"github.com/anchorageoss/visualsign-turnkeyclient/testdata"
-	"github.com/near/borsh-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -305,6 +304,7 @@ func TestVerifyAPIError(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -339,6 +339,7 @@ func TestVerifyAttestationError(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -377,6 +378,7 @@ func TestVerifyInvalidAttestation(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -422,6 +424,7 @@ func TestVerifySaveManifest(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload:  "unsigned-payload",
+		Chain:            "CHAIN_SOLANA",
 		SaveManifestPath: manifestPath,
 	}
 
@@ -449,6 +452,7 @@ func TestVerifyMissingAttestations(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -497,6 +501,7 @@ func TestVerifyInvalidPublicKey(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -541,6 +546,7 @@ func TestVerifyInvalidSignatureHex(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
+		Chain:           "CHAIN_SOLANA",
 	}
 
 	result, err := service.Verify(context.Background(), req)
@@ -549,23 +555,22 @@ func TestVerifyInvalidSignatureHex(t *testing.T) {
 	require.Contains(t, err.Error(), "failed to decode signature hex")
 }
 
-// Test Verify - default chain value
-func TestVerifyDefaultChain(t *testing.T) {
+// TestVerifyRequiresChain ensures that Verify errors when Chain is unset,
+// rather than silently defaulting to CHAIN_SOLANA.
+func TestVerifyRequiresChain(t *testing.T) {
 	mockAPI := &mockAPIClient{err: fmt.Errorf("API error")}
 	mockVerifier := &mockAttestationVerifier{}
 
 	service := NewService(mockAPI, mockVerifier)
 
-	// Test that empty chain triggers default handling
 	req := &VerifyRequest{
 		UnsignedPayload: "unsigned-payload",
-		Chain:           "", // Should default to CHAIN_SOLANA
+		// Chain intentionally empty
 	}
 
 	_, err := service.Verify(context.Background(), req)
 	require.Error(t, err)
-	// The API will be called with CHAIN_SOLANA default, but we don't test that here
-	// We just verify the function handles empty chain correctly
+	require.Contains(t, err.Error(), "chain must be specified")
 }
 
 // Test Verify - save manifest with invalid base64
@@ -594,6 +599,7 @@ func TestVerifySaveManifestInvalidBase64(t *testing.T) {
 
 	req := &VerifyRequest{
 		UnsignedPayload:  "unsigned-payload",
+		Chain:            "CHAIN_SOLANA",
 		SaveManifestPath: manifestPath,
 	}
 
@@ -621,140 +627,66 @@ func TestProcessManifest(t *testing.T) {
 		require.NoError(t, err) // Empty manifest should be skipped gracefully
 	})
 
-	t.Run("invalid manifest b64", func(t *testing.T) {
+	t.Run("invalid envelope base64", func(t *testing.T) {
 		response := &api.SignablePayloadResponse{
-			QosManifestB64:  "!!!invalid!!!",
-			ManifestVersion: manifest.V2,
+			QosManifestEnvelopeB64: "!!!invalid!!!",
 		}
 		result := &VerifyResult{}
 
 		err := service.processManifest(response, []byte{}, result)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to decode QoS manifest")
+		require.Contains(t, err.Error(), "failed to decode QoS manifest envelope")
 	})
 
-	t.Run("invalid raw manifest data", func(t *testing.T) {
-		invalidB64 := base64.StdEncoding.EncodeToString([]byte{0xFF})
-		response := &api.SignablePayloadResponse{
-			QosManifestB64:  invalidB64,
-			ManifestVersion: manifest.V2,
-		}
-		result := &VerifyResult{}
-
-		err := service.processManifest(response, []byte{}, result)
-		require.Error(t, err)
-	})
-
-	t.Run("manifest envelope with invalid data", func(t *testing.T) {
+	t.Run("manifest envelope with invalid JSON data", func(t *testing.T) {
 		invalidEnvB64 := base64.StdEncoding.EncodeToString([]byte{0xFF, 0xFE})
-		invalidRawB64 := base64.StdEncoding.EncodeToString([]byte{0xEE})
 
 		response := &api.SignablePayloadResponse{
-			QosManifestB64:         invalidRawB64,
 			QosManifestEnvelopeB64: invalidEnvB64,
-			ManifestVersion:        manifest.V2,
 		}
 		result := &VerifyResult{}
 
 		err := service.processManifest(response, []byte{}, result)
 		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid QOS JSON manifest envelope")
 	})
 
-	t.Run("empty manifest envelope but has raw manifest", func(t *testing.T) {
-		// Only raw manifest, no envelope
-		invalidB64 := base64.StdEncoding.EncodeToString([]byte{0xAB})
+	t.Run("raw manifest only, no userData", func(t *testing.T) {
+		rawManifestB64 := base64.StdEncoding.EncodeToString([]byte("some raw manifest bytes"))
 		response := &api.SignablePayloadResponse{
-			QosManifestB64:         invalidB64,
-			QosManifestEnvelopeB64: "",
-			ManifestVersion:        manifest.V2,
+			QosManifestB64: rawManifestB64,
 		}
 		result := &VerifyResult{}
 
 		err := service.processManifest(response, []byte{}, result)
-		require.Error(t, err) // Should fail to decode invalid manifest
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "attestation UserData is empty")
+		require.Nil(t, result.Manifest)
 	})
 
-	t.Run("real manifest from embedded testdata", func(t *testing.T) {
-		manifestBytes := testdata.ManifestBin
-
-		manifestB64 := base64.StdEncoding.EncodeToString(manifestBytes)
-		manifestHash := manifest.ComputeHash(manifestBytes)
-		userData, err := hex.DecodeString(manifestHash)
-		require.NoError(t, err)
-
-		response := &api.SignablePayloadResponse{
-			QosManifestEnvelopeB64: manifestB64,
-			ManifestVersion:        manifest.V2,
-		}
-
-		result := &VerifyResult{}
-
-		err = service.processManifest(response, userData, result)
-		require.NoError(t, err)
-		require.NotNil(t, result.Manifest)
-		require.True(t, result.ManifestReserialization.Matches)
-		require.Equal(t, manifestHash, result.QosManifestHash)
-
-		require.NotEmpty(t, result.Manifest.Namespace.Name)
-		require.NotNil(t, result.Manifest.Pivot)
-
-		// Additional validation: envelope hash matches since we're using envelope data
-		require.Equal(t, manifestHash, result.ManifestReserialization.EnvelopeHash)
-	})
-
-	t.Run("manifest envelope from embedded testdata", func(t *testing.T) {
-		// testdata/manifest.bin is an envelope
-		manifestBytes := testdata.ManifestBin
-		envelopeB64 := base64.StdEncoding.EncodeToString(manifestBytes)
-		envelopeHash := manifest.ComputeHash(manifestBytes)
-		userData, err := hex.DecodeString(envelopeHash)
-		require.NoError(t, err)
-
+	t.Run("json envelope, empty userData", func(t *testing.T) {
+		envelopeB64 := base64.StdEncoding.EncodeToString(testdata.QosManifestEnvelopeV2JSON)
 		response := &api.SignablePayloadResponse{
 			QosManifestEnvelopeB64: envelopeB64,
-			QosManifestB64:         envelopeB64, // also set raw for fallback hash
-			ManifestVersion:        manifest.V2,
-		}
-
-		result := &VerifyResult{}
-
-		err = service.processManifest(response, userData, result)
-		require.NoError(t, err)
-		require.NotNil(t, result.Manifest)
-		require.NotEmpty(t, result.Manifest.Namespace.Name)
-	})
-
-	t.Run("borsh unchanged", func(t *testing.T) {
-		manifestBytes := testdata.ManifestBin
-		envelopeB64 := base64.StdEncoding.EncodeToString(manifestBytes)
-		envelopeHash := manifest.ComputeHash(manifestBytes)
-		userData, err := hex.DecodeString(envelopeHash)
-		require.NoError(t, err)
-
-		response := &api.SignablePayloadResponse{
-			QosManifestEnvelopeB64: envelopeB64,
-			ManifestVersion:        manifest.V2,
 		}
 		result := &VerifyResult{}
 
-		err = service.processManifest(response, userData, result)
-		require.NoError(t, err)
-		require.True(t, result.ManifestReserialization.Matches)
-		require.Equal(t, envelopeHash, result.ManifestReserialization.EnvelopeHash)
-		require.Equal(t, "envelope", result.ManifestReserialization.MatchedVia)
+		err := service.processManifest(response, []byte{}, result)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "attestation UserData is empty")
+		require.False(t, result.ManifestReserialization.Matches)
+		require.Nil(t, result.Manifest)
 	})
 
-	t.Run("raw manifest only", func(t *testing.T) {
-		rawManifestBytes, err := borsh.Serialize(manifest.Manifest{})
-		require.NoError(t, err)
+	t.Run("raw manifest only, matches userData", func(t *testing.T) {
+		rawManifestBytes := []byte("some raw manifest bytes")
 		rawManifestB64 := base64.StdEncoding.EncodeToString(rawManifestBytes)
 		rawManifestHash := manifest.ComputeHash(rawManifestBytes)
 		userData, err := hex.DecodeString(rawManifestHash)
 		require.NoError(t, err)
 
 		response := &api.SignablePayloadResponse{
-			QosManifestB64:  rawManifestB64,
-			ManifestVersion: manifest.V2,
+			QosManifestB64: rawManifestB64,
 		}
 		result := &VerifyResult{}
 
@@ -762,6 +694,22 @@ func TestProcessManifest(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, result.ManifestReserialization.Matches)
 		require.Equal(t, "raw", result.ManifestReserialization.MatchedVia)
+	})
+
+	t.Run("raw manifest only, mismatched userData", func(t *testing.T) {
+		rawManifestB64 := base64.StdEncoding.EncodeToString([]byte("some raw manifest bytes"))
+		wrongUserData := manifest.ComputeHash([]byte("not the manifest"))
+		wrongUserDataBytes, err := hex.DecodeString(wrongUserData)
+		require.NoError(t, err)
+
+		response := &api.SignablePayloadResponse{
+			QosManifestB64: rawManifestB64,
+		}
+		result := &VerifyResult{}
+
+		err = service.processManifest(response, wrongUserDataBytes, result)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "manifest hash mismatch")
 	})
 
 	t.Run("json envelope", func(t *testing.T) {
@@ -803,28 +751,33 @@ func TestProcessManifest(t *testing.T) {
 		require.False(t, result.ManifestReserialization.Matches)
 	})
 
-	t.Run("json envelope decode failure is not silently retried via raw manifest fallback", func(t *testing.T) {
+	t.Run("raw-only malformed base64 fails", func(t *testing.T) {
+		response := &api.SignablePayloadResponse{QosManifestB64: "!!!not-base64!!!"}
+		result := &VerifyResult{}
+
+		err := service.processManifest(response, []byte{}, result)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to decode raw manifest base64")
+	})
+
+	t.Run("envelope decode failure ignores the raw manifest field", func(t *testing.T) {
 		// `{}` is valid JSON but fails the strict JSON manifest-envelope
-		// schema (missing required fields), so the envelope is detected as
-		// JSON and its decode fails. A raw manifest also being present must
-		// not cause a fallback to the Borsh raw-manifest path: the JSON
-		// decode error must be returned as-is, not masked or replaced by a
-		// raw-manifest decode attempt/result.
+		// schema (missing required fields). A raw manifest also being
+		// present must not change that outcome: there's no raw-manifest
+		// decode path anymore, so the envelope decode error must be
+		// returned as-is.
 		invalidJSONEnvB64 := base64.StdEncoding.EncodeToString([]byte("{}"))
 		invalidRawB64 := base64.StdEncoding.EncodeToString([]byte{0xFF})
 
 		response := &api.SignablePayloadResponse{
 			QosManifestEnvelopeB64: invalidJSONEnvB64,
 			QosManifestB64:         invalidRawB64,
-			ManifestVersion:        manifest.V2,
 		}
 		result := &VerifyResult{}
 
 		err := service.processManifest(response, []byte{}, result)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "missing required field")
-		require.NotContains(t, err.Error(), "raw manifest decode failed",
-			"a JSON-detected envelope must not fall back to the Borsh raw-manifest path")
 		require.Nil(t, result.Manifest)
 	})
 
@@ -843,6 +796,7 @@ func TestProcessManifest(t *testing.T) {
 
 		err = service.processManifest(response, envelopeHashBytes, result)
 		require.Error(t, err, "a raw/envelope hash match must not satisfy the JSON hash binding")
+		require.NotContains(t, err.Error(), "raw-manifest")
 	})
 
 	t.Run("envelope base64 decode failure does not leak a hash of partial bytes", func(t *testing.T) {
@@ -853,80 +807,54 @@ func TestProcessManifest(t *testing.T) {
 		// envelopeBytes is still non-nil, holding the partial prefix.
 		invalidEnvelopeB64 := base64.StdEncoding.EncodeToString([]byte("hello")) + "!!!!garbage!!!!"
 
-		rawManifestBytes, err := borsh.Serialize(manifest.Manifest{})
-		require.NoError(t, err)
-		rawManifestB64 := base64.StdEncoding.EncodeToString(rawManifestBytes)
-
 		response := &api.SignablePayloadResponse{
 			QosManifestEnvelopeB64: invalidEnvelopeB64,
-			QosManifestB64:         rawManifestB64,
-			ManifestVersion:        manifest.V2,
 		}
 		result := &VerifyResult{}
 
-		// No UserData: this test only checks what EnvelopeHash gets set to
-		// once the raw-manifest fallback succeeds, not the hash-matching
-		// outcome.
-		err = service.processManifest(response, []byte{}, result)
-		require.NoError(t, err, "the raw-manifest fallback should succeed even though the envelope decode failed")
+		err := service.processManifest(response, []byte{}, result)
+		require.Error(t, err)
 		require.Empty(t, result.ManifestReserialization.EnvelopeHash,
 			"EnvelopeHash must stay empty when the envelope base64 decode failed, not a hash of the undecoded partial bytes")
 	})
 
-	t.Run("envelope deserialize failure must not satisfy the binding via envelope hash", func(t *testing.T) {
-		// The envelope base64-decodes fine but is not a valid Borsh envelope,
-		// so DecodeManifestEnvelopeFromBytes fails and processManifest falls
-		// back to decoding the raw manifest field for display/processing.
-		// UserData is crafted to equal the hash of the *undecoded* envelope
-		// bytes. Before the envelopeErr == nil gate, this satisfied
-		// envelopeMatches and the call returned success even though the
-		// envelope was never verified to encode anything, and the manifest
-		// actually processed came from an unrelated raw-manifest field.
-		garbageEnvelopeBytes := []byte("not a valid borsh manifest envelope")
+	t.Run("envelope deserialize failure ignores the raw manifest field for decode", func(t *testing.T) {
+		// The envelope base64-decodes fine but isn't a valid QOS JSON
+		// envelope, so decode fails outright: there's no raw-manifest
+		// decode path to fall back to for display anymore.
+		garbageEnvelopeBytes := []byte("not a valid manifest envelope")
 		envelopeB64 := base64.StdEncoding.EncodeToString(garbageEnvelopeBytes)
 		envelopeHash := manifest.ComputeHash(garbageEnvelopeBytes)
 		userData, err := hex.DecodeString(envelopeHash)
 		require.NoError(t, err)
 
-		rawManifestBytes, err := borsh.Serialize(manifest.Manifest{})
-		require.NoError(t, err)
-		rawManifestB64 := base64.StdEncoding.EncodeToString(rawManifestBytes)
+		rawManifestB64 := base64.StdEncoding.EncodeToString([]byte("some raw manifest bytes"))
 
 		response := &api.SignablePayloadResponse{
 			QosManifestEnvelopeB64: envelopeB64,
 			QosManifestB64:         rawManifestB64,
-			ManifestVersion:        manifest.V2,
 		}
 		result := &VerifyResult{}
 
 		err = service.processManifest(response, userData, result)
 		require.Error(t, err, "an undecoded envelope's byte hash must not satisfy the UserData binding")
-		require.Contains(t, err.Error(), "manifest hash mismatch")
+		require.Contains(t, err.Error(), "invalid QOS JSON manifest envelope")
 		require.False(t, result.ManifestReserialization.Matches)
-		require.NotNil(t, result.Manifest, "the raw-manifest fallback should still have decoded for display")
+		require.Nil(t, result.Manifest)
 	})
 
 	t.Run("EnvelopeHash is surfaced for debugging even on total decode failure", func(t *testing.T) {
-		// The envelope base64 decodes fine but is not a valid Borsh envelope,
-		// and there's no raw-manifest field to fall back to, so
-		// processManifest returns an error without ever reaching the
-		// success path. EnvelopeHash must still be populated in that
-		// early-return debug block: its doc comment promises it's surfaced
-		// "even if [the envelope] then fails to deserialize", which
-		// previously only held true when a raw-manifest fallback happened
-		// to succeed.
-		garbageEnvelopeBytes := []byte("not a valid borsh manifest envelope")
+		garbageEnvelopeBytes := []byte("not a valid manifest envelope")
 		envelopeB64 := base64.StdEncoding.EncodeToString(garbageEnvelopeBytes)
 		expectedEnvelopeHash := manifest.ComputeHash(garbageEnvelopeBytes)
 
 		response := &api.SignablePayloadResponse{
 			QosManifestEnvelopeB64: envelopeB64,
-			ManifestVersion:        manifest.V2,
 		}
 		result := &VerifyResult{}
 
 		err := service.processManifest(response, []byte{}, result)
-		require.Error(t, err, "no raw-manifest fallback is available, so this must be a total decode failure")
+		require.Error(t, err)
 		require.Equal(t, expectedEnvelopeHash, result.ManifestReserialization.EnvelopeHash)
 	})
 }

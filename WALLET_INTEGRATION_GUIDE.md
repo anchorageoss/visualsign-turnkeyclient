@@ -305,6 +305,7 @@ make build
   --organization-id <your-org-id> \
   --key-name <your-key> \
   --unsigned-payload <base64-payload> \
+  --chain CHAIN_SOLANA \
   --qos-manifest-hex <expected-manifest-hash> \
   --pcrs 0:<hex>,1:<hex> \
   --debug

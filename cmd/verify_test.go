@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -19,7 +20,7 @@ func TestVerifyCommand(t *testing.T) {
 	require.Greater(t, len(cmd.Flags), 0)
 
 	// Check for specific required flags
-	var hasHost, hasOrgID, hasKeyName, hasPayload bool
+	var hasHost, hasOrgID, hasKeyName, hasPayload, hasChain bool
 	for _, flag := range cmd.Flags {
 		switch f := flag.(type) {
 		case *cli.StringFlag:
@@ -35,6 +36,11 @@ func TestVerifyCommand(t *testing.T) {
 			if f.Name == "unsigned-payload" {
 				hasPayload = true
 			}
+			if f.Name == "chain" {
+				hasChain = true
+				require.True(t, f.Required, "--chain should be required")
+				require.Empty(t, f.Value, "--chain must not default to a chain, or verify.Verify's required-Chain check is never reached")
+			}
 		}
 	}
 
@@ -42,16 +48,15 @@ func TestVerifyCommand(t *testing.T) {
 	require.True(t, hasOrgID, "Should have --organization-id flag")
 	require.True(t, hasKeyName, "Should have --key-name flag")
 	require.True(t, hasPayload, "Should have --unsigned-payload flag")
+	require.True(t, hasChain, "Should have --chain flag")
 }
 
 func TestMatchedHashLabel(t *testing.T) {
 	require.Equal(t, "Raw manifest hash", matchedHashLabel("raw"))
-	require.Equal(t, "Reserialized manifest hash", matchedHashLabel("reserialized"))
 	require.Equal(t, "Canonical JSON manifest hash", matchedHashLabel("canonical"))
-	require.Equal(t, "Envelope hash", matchedHashLabel("envelope"))
 	// A JSON envelope match must never be labeled as a raw-manifest match:
-	// isJSONEnvelope gating in processManifest means "canonical" is the
-	// only value it can ever produce, but this guards the label mapping
+	// processManifest only produces "canonical" when an envelope is present,
+	// but this guards the label mapping
 	// itself against silently defaulting to the wrong (or a misleading)
 	// label for any unrecognized value.
 	require.NotEqual(t, matchedHashLabel("raw"), matchedHashLabel("canonical"))
@@ -69,4 +74,17 @@ func TestVerifyCommandHasDevPathFlag(t *testing.T) {
 	}
 
 	require.True(t, hasDevPath, "verify should have a --dev-path flag to target /visualsign-dev")
+}
+
+func TestVerifyCommandRejectsAPIVersionV1(t *testing.T) {
+	err := VerifyCommand().Run(context.Background(), []string{
+		"verify",
+		"--host", "https://example.invalid",
+		"--organization-id", "org",
+		"--key-name", "key",
+		"--unsigned-payload", "payload",
+		"--chain", "CHAIN_SOLANA",
+		"--api-version", "v1",
+	})
+	require.ErrorContains(t, err, `only "v2" is supported`)
 }

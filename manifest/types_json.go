@@ -4,8 +4,8 @@ import "encoding/hex"
 
 // This file mirrors QuorumOS's JSON-only "v2" manifest schema
 // (qos_core::protocol::services::boot::manifest::v2), field for field. It is
-// a separate schema from this package's Borsh-oriented Manifest/ManifestV1
-// types: QOS's JSON manifest drops patch_set and adds dns and pivot.env, so
+// a separate schema from this package's Borsh-oriented Manifest
+// type: QOS's JSON manifest drops patch_set and adds dns and pivot.env, so
 // decoding it into the existing Manifest struct would silently misplace or
 // drop fields.
 //
