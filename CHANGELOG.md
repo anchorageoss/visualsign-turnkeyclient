@@ -18,6 +18,7 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 
 ### Changed
 - **Breaking:** `verify.Verify` now requires `VerifyRequest.Chain` and returns an error when it is empty, instead of silently defaulting to `CHAIN_SOLANA`
+- **Breaking:** `verify` fails when a QoS manifest is present but the boot attestation UserData is empty, instead of skipping the manifest hash binding
 - Use commit-count-based auto-versioning derived from git history
 - Release workflow triggers on push to `main` (auto-creates tags)
 - Version output shows `Version (commit: Hash)`; build date is intentionally not included

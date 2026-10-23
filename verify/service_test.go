@@ -635,8 +635,6 @@ func TestProcessManifest(t *testing.T) {
 	})
 
 	t.Run("raw manifest only, no userData", func(t *testing.T) {
-		// A raw (non-envelope) manifest has no decode path anymore; only its
-		// hash can be compared, and there's no UserData to compare against.
 		rawManifestB64 := base64.StdEncoding.EncodeToString([]byte("some raw manifest bytes"))
 		response := &api.SignablePayloadResponse{
 			QosManifestB64: rawManifestB64,
@@ -644,7 +642,22 @@ func TestProcessManifest(t *testing.T) {
 		result := &VerifyResult{}
 
 		err := service.processManifest(response, []byte{}, result)
-		require.NoError(t, err)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "attestation UserData is empty")
+		require.Nil(t, result.Manifest)
+	})
+
+	t.Run("json envelope, empty userData", func(t *testing.T) {
+		envelopeB64 := base64.StdEncoding.EncodeToString(testdata.QosManifestEnvelopeV2JSON)
+		response := &api.SignablePayloadResponse{
+			QosManifestEnvelopeB64: envelopeB64,
+		}
+		result := &VerifyResult{}
+
+		err := service.processManifest(response, []byte{}, result)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "attestation UserData is empty")
+		require.False(t, result.ManifestReserialization.Matches)
 		require.Nil(t, result.Manifest)
 	})
 
