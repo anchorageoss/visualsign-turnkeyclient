@@ -2,11 +2,12 @@
 // directory of files, or a provided embedded default.
 //
 // Roots may be supplied as PEM ("CERTIFICATE" blocks), raw DER, or base64-encoded
-// DER. Load returns the raw DER bytes for each root certificate found, in the
+// DER. Every decoded candidate must parse as an X.509 certificate. Load returns the raw DER bytes for each root certificate found, in the
 // order they were encountered.
 package trustanchor
 
 import (
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
@@ -94,25 +95,21 @@ func Load(path string, embeddedDefault []byte) ([][]byte, error) {
 }
 
 // decodeRoots decodes one or more certificates from a byte slice, accepting PEM
-// (one or more CERTIFICATE blocks), raw DER, or base64-encoded DER. Returns the
-// raw DER bytes for each certificate found.
+// (one or more CERTIFICATE blocks), raw DER, or base64-encoded DER. Every
+// candidate must parse as an X.509 certificate. Returns the raw DER bytes for
+// each certificate found.
 func decodeRoots(data []byte) ([][]byte, error) {
 	// PEM path: one or more CERTIFICATE blocks.
 	if block, rest := pem.Decode(data); block != nil {
 		var roots [][]byte
-		if block.Type == "CERTIFICATE" {
-			roots = append(roots, block.Bytes)
-		}
-		// Decode any remaining blocks.
-		for {
-			b, r := pem.Decode(rest)
-			if b == nil {
-				break
+		for b := block; b != nil; b, rest = pem.Decode(rest) {
+			if b.Type != "CERTIFICATE" {
+				continue
 			}
-			if b.Type == "CERTIFICATE" {
-				roots = append(roots, b.Bytes)
+			if _, err := x509.ParseCertificate(b.Bytes); err != nil {
+				return nil, fmt.Errorf("invalid PEM CERTIFICATE block %d: %w", len(roots)+1, err)
 			}
-			rest = r
+			roots = append(roots, b.Bytes)
 		}
 		if len(roots) > 0 {
 			return roots, nil
@@ -120,24 +117,37 @@ func decodeRoots(data []byte) ([][]byte, error) {
 	}
 
 	// Base64 path: the whole blob decodes to DER. Try padded standard, padded
-	// URL-safe, unpadded standard, and unpadded URL-safe encodings.
+	// URL-safe, unpadded standard, and unpadded URL-safe encodings. Then fall
+	// back to treating the blob as raw DER.
 	trimmed := strings.TrimSpace(string(data))
-	if dec, err := base64.StdEncoding.DecodeString(trimmed); err == nil && looksLikeDER(dec) {
-		return [][]byte{dec}, nil
+	candidates := make([][]byte, 0, 5)
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding,
+		base64.URLEncoding,
+		base64.RawStdEncoding,
+		base64.RawURLEncoding,
+	} {
+		if dec, err := enc.DecodeString(trimmed); err == nil {
+			candidates = append(candidates, dec)
+		}
 	}
-	if dec, err := base64.URLEncoding.DecodeString(trimmed); err == nil && looksLikeDER(dec) {
-		return [][]byte{dec}, nil
-	}
-	if dec, err := base64.RawStdEncoding.DecodeString(trimmed); err == nil && looksLikeDER(dec) {
-		return [][]byte{dec}, nil
-	}
-	if dec, err := base64.RawURLEncoding.DecodeString(trimmed); err == nil && looksLikeDER(dec) {
-		return [][]byte{dec}, nil
-	}
+	candidates = append(candidates, data)
 
-	// Raw DER path.
-	if looksLikeDER(data) {
-		return [][]byte{data}, nil
+	var parseErr error
+	for _, c := range candidates {
+		if !looksLikeDER(c) {
+			continue
+		}
+		if _, err := x509.ParseCertificate(c); err != nil {
+			if parseErr == nil {
+				parseErr = err
+			}
+			continue
+		}
+		return [][]byte{c}, nil
+	}
+	if parseErr != nil {
+		return nil, fmt.Errorf("invalid certificate (expected PEM, DER, or base64-DER): %w", parseErr)
 	}
 
 	return nil, errors.New("unrecognized certificate encoding (expected PEM, DER, or base64-DER)")

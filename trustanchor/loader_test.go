@@ -168,3 +168,59 @@ func TestLoad_NonexistentPath(t *testing.T) {
 	_, err := Load("/this/does/not/exist", nil)
 	require.Error(t, err)
 }
+
+// TestLoad_RejectsInvalidCertificates verifies that candidates which decode
+// but do not parse as X.509 certificates are rejected, and that the error
+// names the source.
+func TestLoad_RejectsInvalidCertificates(t *testing.T) {
+	cases := []struct {
+		name    string
+		file    string
+		content []byte
+	}{
+		{name: "raw DER 0x30", file: "root.der", content: []byte{0x30}},
+		{name: "base64 MA==", file: "root.base64", content: []byte("MA==")},
+		{
+			name:    "PEM CERTIFICATE with garbage bytes",
+			file:    "root.pem",
+			content: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not a certificate")}),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tc.file)
+			require.NoError(t, os.WriteFile(path, tc.content, 0644))
+
+			roots, err := Load(path, nil)
+			require.Error(t, err)
+			require.Nil(t, roots)
+			require.Contains(t, err.Error(), path)
+
+			roots, err = Load(dir, nil)
+			require.Error(t, err)
+			require.Nil(t, roots)
+			require.Contains(t, err.Error(), tc.file)
+
+			roots, err = Load("", tc.content)
+			require.Error(t, err)
+			require.Nil(t, roots)
+			require.Contains(t, err.Error(), "embedded default")
+		})
+	}
+}
+
+// TestLoad_RejectsInvalidPEMAmongValid verifies a single invalid CERTIFICATE
+// block fails the whole PEM bundle rather than being silently kept.
+func TestLoad_RejectsInvalidPEMAmongValid(t *testing.T) {
+	der := selfSignedDER(t, "good")
+	bundle := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	bundle = append(bundle, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte{0x30}})...)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bundle.pem")
+	require.NoError(t, os.WriteFile(path, bundle, 0644))
+
+	_, err := Load(path, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), path)
+}
