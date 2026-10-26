@@ -2,6 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -144,4 +150,88 @@ func TestCreateSignablePayload_ResponseReadError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to read response")
 	require.Contains(t, err.Error(), "connection reset")
+}
+
+// newStampTestServer returns a recording server that answers parse requests
+// with a minimal successful response.
+func newStampTestServer(t *testing.T) (*recordingHandler, *httptest.Server) {
+	t.Helper()
+	resp := TurnkeyVisualSignResponse{}
+	resp.Response.ParsedTransaction.Payload.SignablePayload = "ok"
+	respBody, err := json.Marshal(resp)
+	require.NoError(t, err)
+	handler := &recordingHandler{resp: respBody}
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return handler, srv
+}
+
+func newStampTestKey(t *testing.T, publicKey string) *TurnkeyAPIKey {
+	t.Helper()
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	return &TurnkeyAPIKey{PublicKey: publicKey, PrivateKey: privKey}
+}
+
+// TestCreateSignablePayload_CopiedClientReplacedKey verifies that the default
+// stamper wired by NewClient signs with the key of the client making the call,
+// not the client originally passed to NewClient.
+func TestCreateSignablePayload_CopiedClientReplacedKey(t *testing.T) {
+	handler, srv := newStampTestServer(t)
+
+	original, err := NewClient(srv.URL, http.DefaultClient, "org-original",
+		&mockKeyProvider{apiKey: newStampTestKey(t, "original-public-key")})
+	require.NoError(t, err)
+
+	copied := *original
+	replacement := newStampTestKey(t, "replacement-public-key")
+	replacement.OrganizationID = "org-replacement"
+	copied.APIKey = replacement
+
+	_, err = copied.CreateSignablePayload(context.Background(), &CreateSignablePayloadRequest{
+		UnsignedPayload: "p",
+		Chain:           "CHAIN_ETHEREUM",
+	})
+	require.NoError(t, err)
+
+	stampRaw, err := base64.RawURLEncoding.DecodeString(handler.headers.Get("X-Stamp"))
+	require.NoError(t, err)
+	var stamp TurnkeyStamp
+	require.NoError(t, json.Unmarshal(stampRaw, &stamp))
+	require.Equal(t, "replacement-public-key", stamp.PublicKey)
+
+	// The signature must verify against the replacement key over the body sent.
+	sig, err := hex.DecodeString(stamp.Signature)
+	require.NoError(t, err)
+	digest := sha256.Sum256(handler.body)
+	require.True(t, ecdsa.VerifyASN1(&replacement.PrivateKey.PublicKey, digest[:], sig),
+		"stamp signature must verify with the copy's key")
+
+	var body struct {
+		OrganizationID string `json:"organization_id"`
+	}
+	require.NoError(t, json.Unmarshal(handler.body, &body))
+	require.Equal(t, "org-replacement", body.OrganizationID)
+}
+
+// TestCreateSignablePayload_CopiedClientClearedKey verifies that clearing the
+// API key on a copy of a NewClient-constructed client disables stamping.
+func TestCreateSignablePayload_CopiedClientClearedKey(t *testing.T) {
+	handler, srv := newStampTestServer(t)
+
+	original, err := NewClient(srv.URL, http.DefaultClient, "org-original",
+		&mockKeyProvider{apiKey: newStampTestKey(t, "original-public-key")})
+	require.NoError(t, err)
+
+	copied := *original
+	copied.APIKey = nil
+
+	_, err = copied.CreateSignablePayload(context.Background(), &CreateSignablePayloadRequest{
+		UnsignedPayload: "p",
+		Chain:           "CHAIN_ETHEREUM",
+	})
+	require.NoError(t, err)
+
+	_, hasStamp := handler.headers["X-Stamp"]
+	require.False(t, hasStamp, "expected no X-Stamp header after clearing the copy's API key")
 }

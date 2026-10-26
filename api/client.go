@@ -34,6 +34,10 @@ type RequestStamper interface {
 
 // turnkeyStamper adapts the existing generateStamp path to the RequestStamper
 // interface so NewClient-constructed clients keep stamping with their API key.
+// CreateSignablePayload recognizes it and stamps through the calling Client
+// instead, so a shallow copy (copied := *client) signs with its own APIKey and
+// stops stamping when that key is cleared. The captured client is used only
+// when Stamp is invoked directly.
 type turnkeyStamper struct {
 	client *Client
 }
@@ -145,22 +149,18 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	// Generate and add stamp via the pluggable RequestStamper seam. A nil
-	// stamper falls back to the built-in API-key stamping path (which returns
-	// "" when no API key is configured), preserving the existing Turnkey
-	// behavior for clients constructed directly rather than via NewClient.
+	// stamper, or the built-in turnkeyStamper wired by NewClient, uses the
+	// API-key stamping path of this receiver (which returns "" when no API key
+	// is configured). Custom stampers are invoked as supplied.
 	var stamp string
-	if c.Stamper != nil {
-		s, err := c.Stamper.Stamp(reqJSON)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate stamp: %w", err)
-		}
-		stamp = s
-	} else {
-		s, err := c.generateStamp(reqJSON)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate stamp: %w", err)
-		}
-		stamp = s
+	switch c.Stamper.(type) {
+	case nil, turnkeyStamper:
+		stamp, err = c.generateStamp(reqJSON)
+	default:
+		stamp, err = c.Stamper.Stamp(reqJSON)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate stamp: %w", err)
 	}
 	if stamp != "" {
 		httpReq.Header.Set("X-Stamp", stamp)
