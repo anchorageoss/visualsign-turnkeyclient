@@ -51,7 +51,7 @@ func TestFormatVerificationResult_IntermediateOutput(t *testing.T) {
 	})
 
 	t.Run("present when decoded", func(t *testing.T) {
-		io := &SolanaIntermediateOutput{SchemaVersion: SolanaIntermediateSchemaVersion}
+		io := &SolanaIntermediateOutput{SchemaVersion: SolanaIntermediateMaxSchemaVersion}
 		out := formatter.FormatVerificationResult(&VerifyResult{IntermediateOutput: io})
 		require.Same(t, io, out["intermediateOutput"])
 	})
