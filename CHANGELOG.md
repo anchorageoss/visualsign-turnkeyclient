@@ -8,6 +8,7 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 ## [Unreleased]
 
 ### Added
+- Bitcoin is verified like any chain without chain metadata or intermediate output: `--chain CHAIN_BITCOIN` is passed through unchanged (parser v0.1046.0+). `--chain` help now lists the supported chains
 - NEAR support in `verify`: `--chain CHAIN_NEAR` selects the NEAR decoder for `--include-intermediate-output`, and `--chain-metadata` accepts a `near` variant carrying signed per-asset token mappings keyed by NEAR Intents asset id
 - QOS JSON (v2) manifest envelope parsing, hashed via QOS canonical JSON per the [qos_json spec](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md), and rejects duplicate keys, unknown fields, and non-`"v2"` versions
 
