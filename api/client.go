@@ -23,6 +23,29 @@ type KeyProvider interface {
 	GetAPIKey(ctx context.Context) (*TurnkeyAPIKey, error)
 }
 
+// RequestStamper optionally authenticates an outgoing parse request by returning
+// the value for the "X-Stamp" header. A nil RequestStamper uses the client's
+// built-in default stamping path (which stamps only when an API key is
+// configured, and sends no stamp otherwise). To send no stamp regardless of
+// configuration, supply a RequestStamper whose Stamp returns an empty string.
+type RequestStamper interface {
+	Stamp(requestBody []byte) (string, error)
+}
+
+// turnkeyStamper adapts the existing generateStamp path to the RequestStamper
+// interface so NewClient-constructed clients keep stamping with their API key.
+// CreateSignablePayload recognizes it and stamps through the calling Client
+// instead, so a shallow copy (copied := *client) signs with its own APIKey and
+// stops stamping when that key is cleared. The captured client is used only
+// when Stamp is invoked directly.
+type turnkeyStamper struct {
+	client *Client
+}
+
+func (s turnkeyStamper) Stamp(requestBody []byte) (string, error) {
+	return s.client.generateStamp(requestBody)
+}
+
 // Client implements the Turnkey API client
 type Client struct {
 	HostURI              string
@@ -34,6 +57,15 @@ type Client struct {
 	// instead of the canonical "/visualsign/api/<version>/parse". Use during
 	// production-readiness testing of the parser deployed under the dev path.
 	UseDevPath bool
+	// Stamper, when non-nil, supplies the X-Stamp header for outgoing parse
+	// requests. When nil, the built-in API-key stamping path is used (which
+	// sends no stamp when no API key is configured, enabling unauthenticated
+	// mode). NewClient wires a turnkeyStamper that reuses generateStamp.
+	Stamper RequestStamper
+	// AttestationField names the top-level JSON sibling field whose raw bytes
+	// are copied into SignablePayloadResponse.RawAttestation. Defaults to
+	// "bootProof" when empty.
+	AttestationField string
 }
 
 // NewClient creates a new Turnkey API client with key provider
@@ -45,13 +77,15 @@ func NewClient(hostURI string, httpClient HTTPClient, organizationID string, pro
 
 	apiKey.OrganizationID = organizationID
 
-	return &Client{
+	c := &Client{
 		HostURI:              hostURI,
 		HTTPClient:           httpClient,
 		APIKey:               apiKey,
 		APIKeyProvider:       provider,
 		VisualSignAPIVersion: "v2",
-	}, nil
+	}
+	c.Stamper = turnkeyStamper{client: c}
+	return c, nil
 }
 
 // CreateSignablePayloadRequest represents the request to create signable payload
@@ -67,16 +101,15 @@ type CreateSignablePayloadRequest struct {
 
 // CreateSignablePayload calls Turnkey's visualsign API to create a signable payload
 func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignablePayloadRequest) (*SignablePayloadResponse, error) {
-	if c.APIKey == nil {
-		return nil, fmt.Errorf("APIKey must be configured to create a signable payload")
-	}
-
 	if req == nil {
 		return nil, fmt.Errorf("request must not be nil")
 	}
 
 	// Create the visualsign request
-	reqBody := TurnkeyVisualSignRequest{OrganizationID: c.APIKey.OrganizationID}
+	reqBody := TurnkeyVisualSignRequest{}
+	if c.APIKey != nil {
+		reqBody.OrganizationID = c.APIKey.OrganizationID
+	}
 	reqBody.Request.UnsignedPayload = req.UnsignedPayload
 	reqBody.Request.Chain = req.Chain
 	reqBody.Request.ChainMetadata = req.ChainMetadata
@@ -115,8 +148,17 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	// Add headers
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	// Generate and add stamp
-	stamp, err := c.generateStamp(reqJSON)
+	// Generate and add stamp via the pluggable RequestStamper seam. A nil
+	// stamper, or the built-in turnkeyStamper wired by NewClient, uses the
+	// API-key stamping path of this receiver (which returns "" when no API key
+	// is configured). Custom stampers are invoked as supplied.
+	var stamp string
+	switch c.Stamper.(type) {
+	case nil, turnkeyStamper:
+		stamp, err = c.generateStamp(reqJSON)
+	default:
+		stamp, err = c.Stamper.Stamp(reqJSON)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate stamp: %w", err)
 	}
@@ -139,13 +181,45 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		return nil, fmt.Errorf("turnkey API returned non-OK status: %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Parse response
-	var turnkeyResp TurnkeyVisualSignResponse
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	// Parse response. bootProof is held raw here (the shallower field shadows
+	// the embedded one) so a verifier-specific bootProof shape can't fail the
+	// envelope decode before RawAttestation is captured.
+	var turnkeyResp struct {
+		TurnkeyVisualSignResponse
+		BootProof json.RawMessage `json:"bootProof,omitempty"`
+	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
 
 	err = json.Unmarshal(bodyBytes, &turnkeyResp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Legacy Turnkey boot proof fields. A bootProof that isn't in the Turnkey
+	// shape leaves them empty; the legacy verifier then rejects the missing
+	// boot attestation, while a custom verifier still gets RawAttestation.
+	var bootProof *TurnkeyBootProof
+	if len(turnkeyResp.BootProof) > 0 {
+		var bp TurnkeyBootProof
+		if json.Unmarshal(turnkeyResp.BootProof, &bp) == nil {
+			bootProof = &bp
+		}
+	}
+
+	// Capture the raw sibling attestation field (verifier-agnostic). Decode the
+	// top-level envelope into a map and copy the named field's raw JSON. The
+	// default field name is "bootProof" to preserve existing Turnkey behavior.
+	attnField := c.AttestationField
+	if attnField == "" {
+		attnField = "bootProof"
+	}
+	var rawEnvelope map[string]json.RawMessage
+	var rawAttestation json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &rawEnvelope); err == nil {
+		rawAttestation = rawEnvelope[attnField]
 	}
 
 	// Check for error in response
@@ -175,19 +249,19 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 	}
 
 	// Extract boot attestation from bootProof if available
-	if turnkeyResp.BootProof != nil && turnkeyResp.BootProof.AwsAttestationDocB64 != "" {
-		attestations[BootAttestationKey] = turnkeyResp.BootProof.AwsAttestationDocB64
+	if bootProof != nil && bootProof.AwsAttestationDocB64 != "" {
+		attestations[BootAttestationKey] = bootProof.AwsAttestationDocB64
 	}
 
 	// Extract boot proof fields if available
 	var qosManifestB64, qosManifestEnvelopeB64 string
 	var ephemeralPublicKeyHex, enclaveApp, deploymentLabel string
-	if turnkeyResp.BootProof != nil {
-		qosManifestB64 = turnkeyResp.BootProof.QosManifestB64
-		qosManifestEnvelopeB64 = turnkeyResp.BootProof.QosManifestEnvelopeB64
-		ephemeralPublicKeyHex = turnkeyResp.BootProof.EphemeralPublicKeyHex
-		enclaveApp = turnkeyResp.BootProof.EnclaveApp
-		deploymentLabel = turnkeyResp.BootProof.DeploymentLabel
+	if bootProof != nil {
+		qosManifestB64 = bootProof.QosManifestB64
+		qosManifestEnvelopeB64 = bootProof.QosManifestEnvelopeB64
+		ephemeralPublicKeyHex = bootProof.EphemeralPublicKeyHex
+		enclaveApp = bootProof.EnclaveApp
+		deploymentLabel = bootProof.DeploymentLabel
 	}
 
 	return &SignablePayloadResponse{
@@ -203,6 +277,7 @@ func (c *Client) CreateSignablePayload(ctx context.Context, req *CreateSignableP
 		EphemeralPublicKeyHex:            ephemeralPublicKeyHex,
 		EnclaveApp:                       enclaveApp,
 		DeploymentLabel:                  deploymentLabel,
+		RawAttestation:                   rawAttestation,
 	}, nil
 }
 
