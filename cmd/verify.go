@@ -69,7 +69,7 @@ func VerifyCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:     "chain",
-				Usage:    "Blockchain network (CHAIN_SOLANA, CHAIN_NEAR, CHAIN_ETHEREUM, etc). Also selects which decoder reads --include-intermediate-output, whose bytes do not name their own chain",
+				Usage:    "Blockchain network (CHAIN_SOLANA, CHAIN_ETHEREUM, CHAIN_NEAR, CHAIN_BITCOIN, CHAIN_SUI, CHAIN_TRON; passed through as given). Also selects which decoder reads --include-intermediate-output, whose bytes do not name their own chain",
 				Required: true,
 			},
 			&cli.BoolFlag{

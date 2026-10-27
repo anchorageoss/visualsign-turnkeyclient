@@ -295,6 +295,37 @@ func TestVerifyChainMetadataRejectsPrefixConfusedChain(t *testing.T) {
 	require.Contains(t, err.Error(), "ChainMetadata.Near requires a NEAR chain")
 }
 
+// recordingAPIClient captures the request Verify sends to the API.
+type recordingAPIClient struct {
+	req *api.CreateSignablePayloadRequest
+}
+
+func (m *recordingAPIClient) CreateSignablePayload(ctx context.Context, req *api.CreateSignablePayloadRequest) (*api.SignablePayloadResponse, error) {
+	m.req = req
+	return nil, fmt.Errorf("API error")
+}
+
+// TestVerifyPassesThroughChainWithoutMetadata covers a chain the client has no
+// ChainMetadata arm or intermediate-output decoder for (Bitcoin today): the
+// chain string reaches the API unchanged, with no metadata, so supporting such
+// a chain needs no client change.
+func TestVerifyPassesThroughChainWithoutMetadata(t *testing.T) {
+	mockAPI := &recordingAPIClient{}
+	service := NewService(mockAPI, &mockAttestationVerifier{})
+
+	req := &VerifyRequest{
+		UnsignedPayload: "70736274ff",
+		Chain:           "CHAIN_BITCOIN",
+	}
+	_, err := service.Verify(context.Background(), req)
+	require.ErrorContains(t, err, "failed to call API")
+
+	require.NotNil(t, mockAPI.req)
+	require.Equal(t, "CHAIN_BITCOIN", mockAPI.req.Chain)
+	require.Nil(t, mockAPI.req.ChainMetadata)
+	require.Equal(t, "70736274ff", mockAPI.req.UnsignedPayload)
+}
+
 // Test Verify - API error
 func TestVerifyAPIError(t *testing.T) {
 	mockAPI := &mockAPIClient{err: fmt.Errorf("API error")}
