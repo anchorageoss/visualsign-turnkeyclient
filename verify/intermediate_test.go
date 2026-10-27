@@ -2,8 +2,10 @@ package verify
 
 import (
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	borsh "github.com/near/borsh-go"
@@ -11,6 +13,41 @@ import (
 
 	"github.com/anchorageoss/visualsign-turnkeyclient/testdata"
 )
+
+const (
+	schemaV4 uint16 = 4
+	schemaV5 uint16 = 5
+)
+
+// encodeSolanaIntermediateOutput is the test-side inverse of
+// DecodeSolanaIntermediateOutput: Borsh-encode the struct (which yields the
+// schema_version 4 field layout, NativeInstructionDecoder being borsh_skip),
+// then, for schema_version 5, insert the native_instruction_decoder byte
+// after schema_version as the parser does.
+func encodeSolanaIntermediateOutput(t *testing.T, in SolanaIntermediateOutput) []byte {
+	t.Helper()
+	raw, err := borsh.Serialize(in)
+	require.NoError(t, err)
+	if in.SchemaVersion < solanaNativeInstructionDecoderSince {
+		require.Nil(t, in.NativeInstructionDecoder, "schema_version %d has no native_instruction_decoder", in.SchemaVersion)
+		return raw
+	}
+	require.NotNil(t, in.NativeInstructionDecoder, "schema_version %d requires native_instruction_decoder", in.SchemaVersion)
+	out := append([]byte{}, raw[:2]...)
+	out = append(out, byte(*in.NativeInstructionDecoder))
+	return append(out, raw[2:]...)
+}
+
+// minimalSolanaIntermediateOutput is an otherwise empty output of the given
+// schema_version (with a JsonParsed decoder from 5 on).
+func minimalSolanaIntermediateOutput(version uint16, simErr *SolanaSimulationError) SolanaIntermediateOutput {
+	out := SolanaIntermediateOutput{SchemaVersion: version, SimulationError: simErr}
+	if version >= solanaNativeInstructionDecoderSince {
+		d := SolanaNativeInstructionDecoderJSONParsed
+		out.NativeInstructionDecoder = &d
+	}
+	return out
+}
 
 // solanaIntermediateSample is the captured local-parser fixture (see
 // testdata/solana_intermediate_sample.json).
@@ -42,7 +79,8 @@ func TestDecodeSolanaIntermediateOutput_RealSample(t *testing.T) {
 
 	out, err := DecodeSolanaIntermediateOutput(raw)
 	require.NoError(t, err)
-	require.Equal(t, SolanaIntermediateSchemaVersion, out.SchemaVersion)
+	require.Equal(t, schemaV4, out.SchemaVersion)
+	require.Nil(t, out.NativeInstructionDecoder)
 	require.NotEmpty(t, out.AccountKeys)
 	require.NotEmpty(t, out.ProgramKeys)
 	require.NotEmpty(t, out.Instructions)
@@ -178,53 +216,69 @@ func TestDecodeSolanaIntermediateOutput_SimulationError(t *testing.T) {
 		SolanaSimulationErrorCallerIdlRecordsUnusable,
 		SolanaSimulationErrorCompiledInstruction,
 		SolanaSimulationErrorInvalidInstructionData,
+		SolanaSimulationErrorSimulationUnsupported,
 	}
-	for _, v := range variants {
-		t.Run(v.String(), func(t *testing.T) {
-			v := v
-			in := SolanaIntermediateOutput{
-				SchemaVersion:   SolanaIntermediateSchemaVersion,
-				SimulationError: &v,
-			}
-			raw, err := borsh.Serialize(in)
-			require.NoError(t, err)
+	// Pin the discriminants to the Rust enum's explicit values.
+	for i, v := range variants {
+		require.EqualValues(t, i+1, v, v.String())
+	}
+	require.Equal(t, "SimulationUnsupported", SolanaSimulationErrorSimulationUnsupported.String())
+
+	for _, version := range []uint16{schemaV4, schemaV5} {
+		for _, v := range variants {
+			t.Run(fmt.Sprintf("v%d/%s", version, v), func(t *testing.T) {
+				v := v
+				raw := encodeSolanaIntermediateOutput(t, minimalSolanaIntermediateOutput(version, &v))
+
+				out, err := DecodeSolanaIntermediateOutput(raw)
+				require.NoError(t, err)
+				require.NotNil(t, out.SimulationError)
+				require.Equal(t, v, *out.SimulationError)
+			})
+		}
+
+		t.Run(fmt.Sprintf("v%d/nil stays nil", version), func(t *testing.T) {
+			raw := encodeSolanaIntermediateOutput(t, minimalSolanaIntermediateOutput(version, nil))
 
 			out, err := DecodeSolanaIntermediateOutput(raw)
 			require.NoError(t, err)
-			require.NotNil(t, out.SimulationError)
-			require.Equal(t, v, *out.SimulationError)
+			require.Nil(t, out.SimulationError)
+		})
+	}
+}
+
+// TestDecodeSolanaIntermediateOutput_SchemaGuard ensures a schema_version
+// outside SolanaIntermediateMinSchemaVersion..SolanaIntermediateMaxSchemaVersion
+// is rejected rather than silently misdecoded.
+func TestDecodeSolanaIntermediateOutput_SchemaGuard(t *testing.T) {
+	require.Equal(t, uint16(4), SolanaIntermediateMinSchemaVersion)
+	require.Equal(t, uint16(5), SolanaIntermediateMaxSchemaVersion)
+	require.Equal(t, SolanaIntermediateMaxSchemaVersion, SolanaIntermediateSchemaVersion, //nolint:staticcheck // pins the deprecated alias
+		"the deprecated single version names the newest mirrored version")
+
+	for _, v := range []uint16{0, 3, 6, 0xffff} {
+		t.Run(fmt.Sprintf("v%d", v), func(t *testing.T) {
+			// A well-formed output body under either mirrored layout must
+			// still be refused on the version alone.
+			for _, layoutVersion := range []uint16{schemaV4, schemaV5} {
+				raw := encodeSolanaIntermediateOutput(t, minimalSolanaIntermediateOutput(layoutVersion, nil))
+				binary.LittleEndian.PutUint16(raw, v)
+				_, err := DecodeSolanaIntermediateOutput(raw)
+				require.EqualError(t, err, fmt.Sprintf(
+					"unsupported solana intermediate output schema_version %d (this client supports 4 through 5)", v))
+			}
+
+			// Another version's bytes need not decode under any mirrored
+			// layout; the version must still be what's reported, not a
+			// byte-level Borsh error.
+			raw := make([]byte, 2)
+			binary.LittleEndian.PutUint16(raw, v)
+			_, err := DecodeSolanaIntermediateOutput(raw)
+			require.ErrorContains(t, err, fmt.Sprintf("unsupported solana intermediate output schema_version %d ", v))
 		})
 	}
 
-	t.Run("nil stays nil", func(t *testing.T) {
-		in := SolanaIntermediateOutput{SchemaVersion: SolanaIntermediateSchemaVersion}
-		raw, err := borsh.Serialize(in)
-		require.NoError(t, err)
-
-		out, err := DecodeSolanaIntermediateOutput(raw)
-		require.NoError(t, err)
-		require.Nil(t, out.SimulationError)
-	})
-}
-
-// TestDecodeSolanaIntermediateOutput_SchemaGuard ensures an unexpected
-// schema_version is rejected rather than silently misdecoded.
-func TestDecodeSolanaIntermediateOutput_SchemaGuard(t *testing.T) {
-	// A minimal, well-formed SolanaIntermediateOutput with a bumped version.
-	future := SolanaIntermediateOutput{SchemaVersion: SolanaIntermediateSchemaVersion + 1}
-	raw, err := borsh.Serialize(future)
-	require.NoError(t, err)
-
-	_, err = DecodeSolanaIntermediateOutput(raw)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsupported solana intermediate output schema_version")
-
-	// Another version's bytes need not decode under this layout at all; the
-	// version must still be what's reported, not a byte-level Borsh error.
-	_, err = DecodeSolanaIntermediateOutput([]byte{3, 0})
-	require.ErrorContains(t, err, "unsupported solana intermediate output schema_version 3")
-
-	_, err = DecodeSolanaIntermediateOutput([]byte{4})
+	_, err := DecodeSolanaIntermediateOutput([]byte{4})
 	require.ErrorContains(t, err, "too short for schema_version")
 }
 
@@ -296,7 +350,7 @@ func TestDecodeSolanaIntermediateOutput_SolanaJSONParseErrorRoundTrip(t *testing
 	unsupported := "program has no native decoder"
 	mismatch := "System instruction key mismatch"
 	in := SolanaIntermediateOutput{
-		SchemaVersion: SolanaIntermediateSchemaVersion,
+		SchemaVersion: schemaV4,
 		Instructions: []SolanaIntermediateInstruction{
 			{ProgramKey: "SPoo1Ku8WFXoNDMHPsrGSTSG1Y47rzgn41SLUNakuHy", RegisteredSource: RegisteredSourceNative, SolanaJSONParseError: &unsupported},
 			{ProgramKey: "11111111111111111111111111111111", RegisteredSource: RegisteredSourceNative},
@@ -329,7 +383,7 @@ func TestDecodeSolanaIntermediateOutput_SolanaJSONParseErrorRoundTrip(t *testing
 // case the real samples don't: an instruction with neither jsonParsed field set.
 func TestDecodeSolanaIntermediateOutput_SolanaJSONParsedRoundTrip(t *testing.T) {
 	in := SolanaIntermediateOutput{
-		SchemaVersion: SolanaIntermediateSchemaVersion,
+		SchemaVersion: schemaV4,
 		Instructions: []SolanaIntermediateInstruction{
 			{ProgramKey: "dapp", RegisteredSource: RegisteredSourceUnregistered},
 		},
@@ -341,4 +395,192 @@ func TestDecodeSolanaIntermediateOutput_SolanaJSONParsedRoundTrip(t *testing.T) 
 	require.NoError(t, err)
 	require.Nil(t, out.Instructions[0].SolanaJSONParsedData)
 	require.Nil(t, out.Instructions[0].SolanaJSONParseError)
+}
+
+// TestDecodeSolanaIntermediateOutput_SchemaVersions decodes each accepted
+// schema_version with its own layout: 4 carries no native_instruction_decoder,
+// 5 carries it immediately after schema_version.
+func TestDecodeSolanaIntermediateOutput_SchemaVersions(t *testing.T) {
+	in := SolanaIntermediateOutput{
+		AccountKeys:     []string{"4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"},
+		ProgramKeys:     []string{"11111111111111111111111111111111"},
+		RecentBlockhash: "11111111111111111111111111111111",
+		Instructions: []SolanaIntermediateInstruction{
+			{ProgramKey: "11111111111111111111111111111111", RegisteredSource: RegisteredSourceNative},
+		},
+	}
+
+	t.Run("v4", func(t *testing.T) {
+		v4 := in
+		v4.SchemaVersion = schemaV4
+		raw := encodeSolanaIntermediateOutput(t, v4)
+		require.Equal(t, []byte{4, 0, 1, 0, 0, 0}, raw[:6], "account_keys length follows schema_version directly")
+
+		out, err := DecodeSolanaIntermediateOutput(raw)
+		require.NoError(t, err)
+		require.Equal(t, schemaV4, out.SchemaVersion)
+		require.Nil(t, out.NativeInstructionDecoder)
+		require.Equal(t, in.AccountKeys, out.AccountKeys)
+		require.Equal(t, in.RecentBlockhash, out.RecentBlockhash)
+		require.Len(t, out.Instructions, 1)
+
+		js, err := json.Marshal(out)
+		require.NoError(t, err)
+		require.NotContains(t, string(js), "nativeInstructionDecoder")
+	})
+
+	t.Run("v5", func(t *testing.T) {
+		v5 := in
+		v5.SchemaVersion = schemaV5
+		d := SolanaNativeInstructionDecoderComputeBudgetOnly
+		v5.NativeInstructionDecoder = &d
+		raw := encodeSolanaIntermediateOutput(t, v5)
+		require.Equal(t, []byte{5, 0, 0, 1, 0, 0, 0}, raw[:7], "native_instruction_decoder sits between schema_version and account_keys")
+
+		out, err := DecodeSolanaIntermediateOutput(raw)
+		require.NoError(t, err)
+		require.Equal(t, schemaV5, out.SchemaVersion)
+		require.NotNil(t, out.NativeInstructionDecoder)
+		require.Equal(t, SolanaNativeInstructionDecoderComputeBudgetOnly, *out.NativeInstructionDecoder)
+		require.Equal(t, in.AccountKeys, out.AccountKeys)
+		require.Equal(t, in.RecentBlockhash, out.RecentBlockhash)
+		require.Len(t, out.Instructions, 1)
+
+		js, err := json.Marshal(out)
+		require.NoError(t, err)
+		require.Contains(t, string(js), `"nativeInstructionDecoder":"ComputeBudgetOnly"`)
+	})
+}
+
+// TestDecodeSolanaIntermediateOutput_NativeInstructionDecoder round-trips
+// each native_instruction_decoder tag through encode/decode and refuses a
+// tag the parser's enum does not define.
+func TestDecodeSolanaIntermediateOutput_NativeInstructionDecoder(t *testing.T) {
+	cases := []struct {
+		tag  byte
+		want SolanaNativeInstructionDecoder
+		name string
+	}{
+		{0, SolanaNativeInstructionDecoderComputeBudgetOnly, "ComputeBudgetOnly"},
+		{1, SolanaNativeInstructionDecoderJSONParsed, "JsonParsed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.EqualValues(t, tc.tag, tc.want)
+			require.Equal(t, tc.name, tc.want.String())
+			js, err := json.Marshal(tc.want)
+			require.NoError(t, err)
+			require.JSONEq(t, fmt.Sprintf("%q", tc.name), string(js))
+
+			d := tc.want
+			in := SolanaIntermediateOutput{SchemaVersion: schemaV5, NativeInstructionDecoder: &d}
+			raw := encodeSolanaIntermediateOutput(t, in)
+			require.Equal(t, tc.tag, raw[2])
+
+			out, err := DecodeSolanaIntermediateOutput(raw)
+			require.NoError(t, err)
+			require.NotNil(t, out.NativeInstructionDecoder)
+			require.Equal(t, tc.want, *out.NativeInstructionDecoder)
+		})
+	}
+
+	t.Run("unknown tag refused", func(t *testing.T) {
+		raw := encodeSolanaIntermediateOutput(t, minimalSolanaIntermediateOutput(schemaV5, nil))
+		raw[2] = 2
+		_, err := DecodeSolanaIntermediateOutput(raw)
+		require.EqualError(t, err, "unknown solana intermediate output native_instruction_decoder tag 2")
+		require.Equal(t, "SolanaNativeInstructionDecoder(2)", SolanaNativeInstructionDecoder(2).String())
+	})
+}
+
+// TestDecodeSolanaIntermediateOutput_V5Truncation refuses schema_version 5
+// output that ends exactly where native_instruction_decoder should be, and
+// output that ends right after it.
+func TestDecodeSolanaIntermediateOutput_V5Truncation(t *testing.T) {
+	_, err := DecodeSolanaIntermediateOutput([]byte{5, 0})
+	require.EqualError(t, err,
+		"solana intermediate output schema_version 5 too short for native_instruction_decoder: 2 bytes")
+
+	raw := encodeSolanaIntermediateOutput(t, minimalSolanaIntermediateOutput(schemaV5, nil))
+	_, err = DecodeSolanaIntermediateOutput(raw[:3])
+	require.ErrorContains(t, err, "borsh-decode solana intermediate output")
+
+	// A schema_version 4 output of the same length is a plain Borsh
+	// truncation, not a missing decoder byte.
+	_, err = DecodeSolanaIntermediateOutput([]byte{4, 0})
+	require.ErrorContains(t, err, "borsh-decode solana intermediate output")
+}
+
+// solanaV5Capture is one entry of testdata/solana_intermediate_v5_captures.json.
+type solanaV5Capture struct {
+	Name                           string          `json:"name"`
+	UnsignedPayload                string          `json:"unsignedPayload"`
+	V4ControlIntermediateOutputB64 string          `json:"v4ControlIntermediateOutputB64"`
+	GatewayResponse                json.RawMessage `json:"gatewayResponse"`
+}
+
+func loadSolanaV5Captures(t *testing.T) []solanaV5Capture {
+	t.Helper()
+	var f struct {
+		Cases []solanaV5Capture `json:"cases"`
+	}
+	require.NoError(t, json.Unmarshal(testdata.SolanaIntermediateV5CapturesJSON, &f))
+	require.Len(t, f.Cases, 3)
+	return f.Cases
+}
+
+// v5IntermediateOutput extracts the base64 intermediate output from a
+// capture's gateway response.
+func (c solanaV5Capture) v5IntermediateOutput(t *testing.T) []byte {
+	t.Helper()
+	var r struct {
+		Response struct {
+			ParsedTransaction struct {
+				Payload struct {
+					IntermediateOutput string `json:"intermediateOutput"`
+				} `json:"payload"`
+			} `json:"parsedTransaction"`
+		} `json:"response"`
+	}
+	require.NoError(t, json.Unmarshal(c.GatewayResponse, &r))
+	raw, err := base64.StdEncoding.DecodeString(r.Response.ParsedTransaction.Payload.IntermediateOutput)
+	require.NoError(t, err)
+	return raw
+}
+
+// TestDecodeSolanaIntermediateOutput_RealV5Captures decodes real schema_version
+// 5 output from parser PR #575 and its schema_version 4 control for the same
+// transaction. Apart from the version and the decoder byte the wire bytes are
+// identical, so the two decodes must agree on every other field.
+func TestDecodeSolanaIntermediateOutput_RealV5Captures(t *testing.T) {
+	for _, c := range loadSolanaV5Captures(t) {
+		t.Run(c.Name, func(t *testing.T) {
+			v5raw := c.v5IntermediateOutput(t)
+			v4raw, err := base64.StdEncoding.DecodeString(c.V4ControlIntermediateOutputB64)
+			require.NoError(t, err)
+			require.Equal(t, []byte{5, 0, 1}, v5raw[:3], "schema_version 5, JsonParsed")
+			require.Equal(t, []byte{4, 0}, v4raw[:2])
+			require.Equal(t, v4raw[2:], v5raw[3:], "layout after the decoder byte is unchanged")
+
+			v5, err := DecodeSolanaIntermediateOutput(v5raw)
+			require.NoError(t, err)
+			require.Equal(t, schemaV5, v5.SchemaVersion)
+			require.NotNil(t, v5.NativeInstructionDecoder)
+			require.Equal(t, SolanaNativeInstructionDecoderJSONParsed, *v5.NativeInstructionDecoder)
+			require.NotEmpty(t, v5.AccountKeys)
+			require.NotEmpty(t, v5.Instructions)
+			require.NotEmpty(t, v5.RecentBlockhash)
+			for _, ix := range v5.Instructions {
+				require.NotEmpty(t, ix.ProgramKey)
+			}
+
+			v4, err := DecodeSolanaIntermediateOutput(v4raw)
+			require.NoError(t, err)
+			require.Equal(t, schemaV4, v4.SchemaVersion)
+			require.Nil(t, v4.NativeInstructionDecoder)
+
+			v5.SchemaVersion, v5.NativeInstructionDecoder = v4.SchemaVersion, nil
+			require.Equal(t, v4, v5)
+		})
+	}
 }

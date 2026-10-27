@@ -37,6 +37,16 @@ var SolanaIntermediateSimulatedSampleJSON []byte
 //go:embed solana_intermediate_json_parsed_sample.json
 var SolanaIntermediateJSONParsedSampleJSON []byte
 
+// SolanaIntermediateV5CapturesJSON holds real schema_version 5 responses
+// captured from a local parser gateway built from visualsign-parser PR #575
+// (head dac871eb; image digests in the file's note), one per transaction:
+// the Turnkey-shaped gateway response, the unsigned payload, and the same
+// payload's schema_version 4 intermediate output from a released parser as a
+// control.
+//
+//go:embed solana_intermediate_v5_captures.json
+var SolanaIntermediateV5CapturesJSON []byte
+
 // SolanaIntermediateGatewayResponseJSON is the full Turnkey-shaped response the
 // local parser gateway returned for SolanaIntermediateUnsignedPayload with
 // include_intermediate_output=true (mock boot proof + real app signature +
