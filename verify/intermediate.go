@@ -75,6 +75,39 @@ func (s RegisteredSource) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.String())
 }
 
+// SolanaNativeInstructionDecoder mirrors intermediate.rs
+// SolanaNativeInstructionDecoder: the native decoding the parser build that
+// produced the output has. It is a build capability, not a per-instruction
+// result, so a consumer can tell a build without Solana's jsonParsed decoder
+// from a decode failure reported in SolanaJSONParseError. Added in
+// schema_version 5 as the field right after schema_version.
+type SolanaNativeInstructionDecoder borsh.Enum
+
+const (
+	// SolanaNativeInstructionDecoderComputeBudgetOnly: the parser was built
+	// without its json-parsed feature, so only Compute Budget has a native
+	// decoder.
+	SolanaNativeInstructionDecoderComputeBudgetOnly SolanaNativeInstructionDecoder = iota
+	// SolanaNativeInstructionDecoderJSONParsed: Solana's jsonParsed decoder
+	// plus the parser's own Compute Budget decoder.
+	SolanaNativeInstructionDecoderJSONParsed
+)
+
+func (d SolanaNativeInstructionDecoder) String() string {
+	switch d {
+	case SolanaNativeInstructionDecoderComputeBudgetOnly:
+		return "ComputeBudgetOnly"
+	case SolanaNativeInstructionDecoderJSONParsed:
+		return "JsonParsed"
+	default:
+		return fmt.Sprintf("SolanaNativeInstructionDecoder(%d)", uint8(d))
+	}
+}
+
+func (d SolanaNativeInstructionDecoder) MarshalJSON() ([]byte, error) {
+	return json.Marshal(d.String())
+}
+
 // SolanaSimulationError mirrors intermediate.rs SolanaSimulationError: why a
 // caller-supplied simulateTransaction result could not be read. Unit variants;
 // the detail is logged parser-side rather than encoded.
@@ -90,6 +123,10 @@ const (
 	SolanaSimulationErrorCallerIdlRecordsUnusable
 	SolanaSimulationErrorCompiledInstruction
 	SolanaSimulationErrorInvalidInstructionData
+	// SolanaSimulationErrorSimulationUnsupported: the parser was built
+	// without its simulation feature, so a supplied simulation was not read.
+	// Added in schema_version 5.
+	SolanaSimulationErrorSimulationUnsupported
 )
 
 func (e SolanaSimulationError) String() string {
@@ -106,6 +143,8 @@ func (e SolanaSimulationError) String() string {
 		return "CompiledInstruction"
 	case SolanaSimulationErrorInvalidInstructionData:
 		return "InvalidInstructionData"
+	case SolanaSimulationErrorSimulationUnsupported:
+		return "SimulationUnsupported"
 	default:
 		return fmt.Sprintf("SolanaSimulationError(%d)", uint8(e))
 	}
@@ -117,17 +156,21 @@ func (e SolanaSimulationError) MarshalJSON() ([]byte, error) {
 
 // SolanaIntermediateOutput mirrors intermediate.rs SolanaIntermediateOutput.
 // schema_version is the first field so decoders can gate on it before trusting
-// the remaining layout; max_fee_lamports is the last, so it is read only after
-// every field the previous layout already had.
+// the remaining layout. schema_version 5 wraps the previous layout:
+// native_instruction_decoder follows the version, and max_fee_lamports is the
+// last field, read only after every field the previous layout already had.
 type SolanaIntermediateOutput struct {
-	SchemaVersion       uint16                          `json:"schemaVersion"`
-	AccountKeys         []string                        `json:"accountKeys"`
-	ProgramKeys         []string                        `json:"programKeys"`
-	Instructions        []SolanaIntermediateInstruction `json:"instructions"`
-	Transfers           []SolTransfer                   `json:"transfers"`
-	SplTransfers        []SplTransfer                   `json:"splTransfers"`
-	RecentBlockhash     string                          `json:"recentBlockhash"`
-	AddressTableLookups []SolanaAddressTableLookup      `json:"addressTableLookups"`
+	SchemaVersion uint16 `json:"schemaVersion"`
+	// NativeInstructionDecoder is the native decoding the parser build has.
+	// Added in schema_version 5.
+	NativeInstructionDecoder SolanaNativeInstructionDecoder  `json:"nativeInstructionDecoder"`
+	AccountKeys              []string                        `json:"accountKeys"`
+	ProgramKeys              []string                        `json:"programKeys"`
+	Instructions             []SolanaIntermediateInstruction `json:"instructions"`
+	Transfers                []SolTransfer                   `json:"transfers"`
+	SplTransfers             []SplTransfer                   `json:"splTransfers"`
+	RecentBlockhash          string                          `json:"recentBlockhash"`
+	AddressTableLookups      []SolanaAddressTableLookup      `json:"addressTableLookups"`
 	// SimulatedInstructions is a flat list of every call (top-level and
 	// inner/CPI alike) a caller-supplied transaction simulation observed.
 	// Independent of Instructions (static decode): no positional correlation,
@@ -348,6 +391,13 @@ func DecodeSolanaIntermediateOutput(b []byte) (*SolanaIntermediateOutput, error)
 	var out SolanaIntermediateOutput
 	if err := borsh.Deserialize(&out, b); err != nil {
 		return nil, fmt.Errorf("borsh-decode solana intermediate output: %w", err)
+	}
+	// Rust's deserializer rejects an unknown discriminant. Mirror that for the
+	// capability tag that frames the output rather than carry a build
+	// capability this client cannot name.
+	if d := out.NativeInstructionDecoder; d != SolanaNativeInstructionDecoderComputeBudgetOnly &&
+		d != SolanaNativeInstructionDecoderJSONParsed {
+		return nil, fmt.Errorf("unknown solana intermediate output native_instruction_decoder %d", uint8(d))
 	}
 	normalizeOptionals(&out)
 	return &out, nil

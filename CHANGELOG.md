@@ -10,6 +10,7 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 ### Added
 - `api.SolanaChainMetadata.MaxFeeLamports` (wire key `maxFeeLamports`, sent as a JSON number and accepted as a number or a decimal string): a per-transaction cap on base fee plus priority fee, in lamports. The parser renders the cap in force as a top-level "Max Fee" row, applies a default of 0.1 SOL when the field is absent, and rejects a transaction that commits to more
 - `verify.SolanaIntermediateOutput.MaxFeeLamports`, the cap in force, carried as the trailing field of Solana intermediate output schema_version 5, and `verify.SolanaDefaultMaxFeeLamports`, the parser default it holds when the request sent no cap
+- `verify.SolanaNativeInstructionDecoder` (`ComputeBudgetOnly`, `JsonParsed`), the parser build's native decoding capability that schema_version 5 places right after the version, surfaced as `SolanaIntermediateOutput.NativeInstructionDecoder`; and `verify.SolanaSimulationErrorSimulationUnsupported` (7), set by a parser built without its simulation feature
 - NEAR support in `verify`: `--chain CHAIN_NEAR` selects the NEAR decoder for `--include-intermediate-output`, and `--chain-metadata` accepts a `near` variant carrying signed per-asset token mappings keyed by NEAR Intents asset id
 - QOS JSON (v2) manifest envelope parsing, hashed via QOS canonical JSON per the [qos_json spec](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md), and rejects duplicate keys, unknown fields, and non-`"v2"` versions
 
@@ -20,7 +21,7 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 - **Breaking:** `verify --api-version` only accepts `v2`
 
 ### Changed
-- **Breaking:** Solana intermediate output schema_version 5 (visualsign-parser #625). `verify.SolanaIntermediateSchemaVersion` is 5 and `DecodeSolanaIntermediateOutput` accepts exactly that version, so a consumer of this release and the parser must move together
+- **Breaking:** Solana intermediate output schema_version 5 (visualsign-parser #625): a `native_instruction_decoder` tag follows the version and `max_fee_lamports` trails the previous layout. `verify.SolanaIntermediateSchemaVersion` is 5 and `DecodeSolanaIntermediateOutput` accepts exactly that version (and refuses an unknown decoder tag), so a consumer of this release and the parser must move together
 - **Breaking:** the Solana `metadataDigest` covers the trailing `max_fee_lamports` field of the Borsh-encoded `ChainMetadata`, so every Solana request that carries `chain_metadata` hashes differently from a parser without #625, even when the field is absent. This client against an older parser fails closed on the digest check for such requests, and the previous client against a #625 parser does the same
 - The intermediate-output decoder is selected by `VerifyResponseRequest.Chain`. Borsh carries no chain tag of its own, so `VerifyResponse` now requires `Chain` to decode a non-empty intermediate output rather than assuming Solana
 - **Breaking:** `verify.Verify` now requires `VerifyRequest.Chain` and returns an error when it is empty, instead of silently defaulting to `CHAIN_SOLANA`

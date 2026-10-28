@@ -95,7 +95,9 @@ func TestVerifyEndToEnd_IntermediateOutputAgainstGatewayResponse(t *testing.T) {
 	require.Equal(t, SolanaIntermediateSchemaVersion, result.IntermediateOutput.SchemaVersion)
 	require.Len(t, result.IntermediateOutput.Transfers, 1)
 	require.Equal(t, "1000000000", result.IntermediateOutput.Transfers[0].Amount)
-	// No cap was sent, so the trailing field is the parser default.
+	// The schema_version 5 frame: the dev build's decoder tag, and the parser
+	// default cap since the request sent none.
+	require.Equal(t, SolanaNativeInstructionDecoderJSONParsed, result.IntermediateOutput.NativeInstructionDecoder)
 	require.Equal(t, SolanaDefaultMaxFeeLamports, result.IntermediateOutput.MaxFeeLamports)
 }
 
