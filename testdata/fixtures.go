@@ -14,10 +14,11 @@ var ManifestBin []byte
 var AttestationBase64 []byte
 
 // SolanaIntermediateSampleJSON is a captured local-parser response carrying a
-// real Borsh-encoded Solana intermediate output (schema_version 5; the
-// request sent no cap, so its trailing MaxFeeLamports is the parser default)
-// plus the enclave-signed message digest, used to cross-check the Go Borsh
-// decode and signed-digest recompute against Rust output.
+// real Borsh-encoded Solana intermediate output (schema_version 5: the dev
+// build's JsonParsed decoder tag follows the version, and the request sent no
+// cap, so the trailing MaxFeeLamports is the parser default) plus the
+// enclave-signed message digest, used to cross-check the Go Borsh decode and
+// signed-digest recompute against Rust output.
 //
 //go:embed solana_intermediate_sample.json
 var SolanaIntermediateSampleJSON []byte
@@ -29,7 +30,8 @@ var SolanaIntermediateSampleJSON []byte
 // calls also carry a native ParsedInstructionData). The request carried the
 // simulation (kept as simulatedTransactionResultB64, exactly as sent) and no
 // cap, so the metadataDigest covers an absent max_fee_lamports and the
-// output's MaxFeeLamports is the parser default.
+// output's MaxFeeLamports is the parser default; its decoder tag is
+// JsonParsed.
 //
 //go:embed solana_intermediate_simulated_sample.json
 var SolanaIntermediateSimulatedSampleJSON []byte
@@ -37,8 +39,8 @@ var SolanaIntermediateSimulatedSampleJSON []byte
 // SolanaIntermediateJSONParsedSampleJSON is real parser_cli v5 output for a
 // Compute Budget instruction plus a System transfer: both carry
 // SolanaJSONParsedData and a native ParsedInstructionData (empty IdlSource),
-// and the trailing MaxFeeLamports is the parser default. Unsigned; it pins
-// the decode layout only.
+// the decoder tag is JsonParsed, and the trailing MaxFeeLamports is the
+// parser default. Unsigned; it pins the decode layout only.
 //
 //go:embed solana_intermediate_json_parsed_sample.json
 var SolanaIntermediateJSONParsedSampleJSON []byte
