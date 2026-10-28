@@ -91,7 +91,7 @@ func VerifyCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  "chain-metadata",
-				Usage: `Chain metadata JSON (e.g. {"ethereum":{"abiMappings":{"0xAddr":{"value":"[...]"}}}} or {"near":{"tokenMappings":{"nep141:wrap.near":{"value":"[...]"}}}})`,
+				Usage: `Chain metadata JSON (e.g. {"ethereum":{"abiMappings":{"0xAddr":{"value":"[...]"}}}}, {"solana":{"maxFeeLamports":5105000}} or {"near":{"tokenMappings":{"nep141:wrap.near":{"value":"[...]"}}}})`,
 			},
 			&cli.BoolFlag{
 				Name:  "include-intermediate-output",

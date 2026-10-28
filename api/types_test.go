@@ -115,6 +115,40 @@ func TestRequestChainMetadata_JSONRoundTrip(t *testing.T) {
 		require.Equal(t, []byte("x"), m.Solana.SimulatedTransactionResult)
 	})
 
+	t.Run("solana max fee marshals as a number and round-trips", func(t *testing.T) {
+		original := RequestChainMetadata{
+			Solana: &SolanaChainMetadata{MaxFeeLamports: uint64Ptr(5_105_000)},
+		}
+
+		b, err := json.Marshal(original)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"solana":{"maxFeeLamports":5105000}}`, string(b))
+
+		var back RequestChainMetadata
+		require.NoError(t, json.Unmarshal(b, &back))
+		require.Equal(t, original, back)
+	})
+
+	t.Run("solana max fee accepts the decimal string protojson emits for a uint64", func(t *testing.T) {
+		var m RequestChainMetadata
+		require.NoError(t, json.Unmarshal(
+			[]byte(`{"solana":{"maxFeeLamports":"5105000","simulatedTransactionResult":"eA=="}}`), &m))
+		require.Equal(t, uint64Ptr(5_105_000), m.Solana.MaxFeeLamports)
+		require.Equal(t, []byte("x"), m.Solana.SimulatedTransactionResult, "the other fields still decode")
+
+		require.NoError(t, json.Unmarshal([]byte(`{"solana":{"maxFeeLamports":null}}`), &m))
+		require.Nil(t, m.Solana.MaxFeeLamports)
+	})
+
+	t.Run("solana max fee rejects values the parser would refuse", func(t *testing.T) {
+		for _, bad := range []string{`-1`, `"-1"`, `1.5`, `"abc"`, `""`, `true`} {
+			var m RequestChainMetadata
+			err := json.Unmarshal([]byte(`{"solana":{"maxFeeLamports":`+bad+`}}`), &m)
+			require.Error(t, err, bad)
+			require.ErrorContains(t, err, "maxFeeLamports", bad)
+		}
+	})
+
 	t.Run("unmarshal rejects missing chain discriminator", func(t *testing.T) {
 		var m RequestChainMetadata
 		err := json.Unmarshal([]byte(`{"networkId":"1"}`), &m)

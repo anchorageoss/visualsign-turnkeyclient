@@ -15,16 +15,25 @@ import (
 //
 // Borsh is not self-describing: these structs must mirror the Rust types
 // field-for-field in declaration order. Types map as: Rust String -> string,
-// Vec<T> -> []T, Option<T> -> *T, u16 -> uint16, i32 -> int32,
-// BTreeMap<String,String> -> map[string]string. JSON tags drive the verify
-// command's structured output and do not affect Borsh (which is positional).
+// Vec<T> -> []T, Option<T> -> *T, u16 -> uint16, u32 -> uint32,
+// u64 -> uint64, i32 -> int32, BTreeMap<String,String> -> map[string]string.
+// JSON tags drive the verify command's structured output and do not affect
+// Borsh (which is positional).
 
 // SolanaIntermediateSchemaVersion is the schema_version this client understands.
 // It matches SOLANA_INTERMEDIATE_SCHEMA_VERSION in the parser's intermediate.rs.
 //
 // Exactly this version is accepted (see DecodeSolanaIntermediateOutput), so a
 // parser and a consumer of this package must move to a new version together.
-const SolanaIntermediateSchemaVersion uint16 = 4
+const SolanaIntermediateSchemaVersion uint16 = 5
+
+// SolanaDefaultMaxFeeLamports is the fee cap the parser applies when the
+// request sends no api.SolanaChainMetadata.MaxFeeLamports: 0.1 SOL
+// (priority_fee.rs DEFAULT_MAX_FEE_LAMPORTS). It is the value
+// SolanaIntermediateOutput.MaxFeeLamports carries for such a request. The
+// default is parser behavior, not part of the Borsh layout, so a change to it
+// does not bump the schema version.
+const SolanaDefaultMaxFeeLamports uint64 = 100_000_000
 
 // AddressTableLookupPlaceholder is the value the parser emits in place of a
 // pubkey for an account an instruction reads through an address lookup table
@@ -108,7 +117,8 @@ func (e SolanaSimulationError) MarshalJSON() ([]byte, error) {
 
 // SolanaIntermediateOutput mirrors intermediate.rs SolanaIntermediateOutput.
 // schema_version is the first field so decoders can gate on it before trusting
-// the remaining layout.
+// the remaining layout; max_fee_lamports is the last, so it is read only after
+// every field the previous layout already had.
 type SolanaIntermediateOutput struct {
 	SchemaVersion       uint16                          `json:"schemaVersion"`
 	AccountKeys         []string                        `json:"accountKeys"`
@@ -128,6 +138,17 @@ type SolanaIntermediateOutput struct {
 	// authoritative: empty there means the simulation had no inner
 	// instructions, not that we failed to read it.
 	SimulationError *SolanaSimulationError `json:"simulationError,omitempty"`
+	// MaxFeeLamports is the fee cap in force when the payload was rendered,
+	// the same number its "Max Fee" row shows the signer: the caller's
+	// api.SolanaChainMetadata.MaxFeeLamports, or SolanaDefaultMaxFeeLamports
+	// when the request sent none. The parser has already refused any
+	// transaction that commits to more (the base fee for every charged
+	// signature plus the compute budget priority fee), so this value bounds
+	// the fee the transaction can pay, and a consumer can apply its own fee
+	// policy to it without re-parsing the payload. The value alone does not
+	// say whether the default or a caller cap applied. Added in
+	// schema_version 5 as the last field.
+	MaxFeeLamports uint64 `json:"maxFeeLamports"`
 }
 
 // SolanaIntermediateInstruction mirrors intermediate.rs SolanaIntermediateInstruction.

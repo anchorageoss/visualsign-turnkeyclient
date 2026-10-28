@@ -80,6 +80,11 @@ func TestDecodeSolanaIntermediateOutput_RealSample(t *testing.T) {
 	require.Empty(t, transfer.ParsedInstructionData.IdlHash)
 	require.NotNil(t, transfer.SolanaJSONParsedData)
 	require.Equal(t, "system", transfer.SolanaJSONParsedData.Program)
+
+	// The request sent no cap, so the trailing schema_version 5 field holds
+	// the parser default. It is the last field: a wrong length anywhere
+	// before it would misplace these eight bytes and fail here.
+	require.Equal(t, SolanaDefaultMaxFeeLamports, out.MaxFeeLamports)
 }
 
 // TestComputeBorshParsedTransactionPayloadHash_IntermediateCrosscheck pins the
@@ -106,13 +111,16 @@ func TestComputeBorshParsedTransactionPayloadHash_IntermediateCrosscheck(t *test
 
 // TestDecodeSolanaIntermediateOutput_SimulatedInstructions guards against
 // SolanaSimulatedInstruction field-order drift vs the Rust struct. The
-// fixture is a real mainnet Kamino Vault transaction (18 simulated inner
-// instructions, including CPIs into KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD
-// decoded via the in-crate Kamino preset IDL merged into idl_records --
-// RegisteredSource::Preset, IdlSource "Preset" -- and RPC-parsed SPL
-// Token/Token-2022 calls, which schema_version 4 also decodes natively).
-// SolanaJSONParseError is the last field, so a missing or misplaced field
-// would shift every following instruction's bytes.
+// fixture is a real mainnet Kamino Vault transaction (14 simulated inner
+// instructions at the schema_version 5 re-simulation, 18 at the previous
+// one: the count follows vault state, the first two calls do not), including
+// CPIs into KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD decoded via the
+// in-crate Kamino preset IDL merged into idl_records -- RegisteredSource::Preset,
+// IdlSource "Preset" -- and RPC-parsed SPL Token/Token-2022 calls, which
+// schema_version 4 also decodes natively. SolanaJSONParseError is the last
+// per-instruction field, so a missing or misplaced field would shift every
+// following instruction's bytes, and the trailing schema_version 5 cap
+// would land on the wrong bytes.
 func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
 	var s solanaIntermediateSample
 	require.NoError(t, json.Unmarshal(testdata.SolanaIntermediateSimulatedSampleJSON, &s))
@@ -122,7 +130,9 @@ func TestDecodeSolanaIntermediateOutput_SimulatedInstructions(t *testing.T) {
 
 	out, err := DecodeSolanaIntermediateOutput(raw)
 	require.NoError(t, err)
-	require.Len(t, out.SimulatedInstructions, 18)
+	require.Nil(t, out.SimulationError, "the supplied simulation was read")
+	require.Len(t, out.SimulatedInstructions, 14)
+	require.Equal(t, SolanaDefaultMaxFeeLamports, out.MaxFeeLamports, "no cap was sent with the simulation")
 
 	sim := out.SimulatedInstructions[0]
 	require.EqualValues(t, 2, sim.Index)
@@ -221,20 +231,57 @@ func TestDecodeSolanaIntermediateOutput_SchemaGuard(t *testing.T) {
 
 	// Another version's bytes need not decode under this layout at all; the
 	// version must still be what's reported, not a byte-level Borsh error.
-	_, err = DecodeSolanaIntermediateOutput([]byte{3, 0})
-	require.ErrorContains(t, err, "unsupported solana intermediate output schema_version 3")
+	_, err = DecodeSolanaIntermediateOutput([]byte{4, 0})
+	require.ErrorContains(t, err, "unsupported solana intermediate output schema_version 4")
 
-	_, err = DecodeSolanaIntermediateOutput([]byte{4})
+	_, err = DecodeSolanaIntermediateOutput([]byte{5})
 	require.ErrorContains(t, err, "too short for schema_version")
 }
 
-// TestDecodeSolanaIntermediateOutput_SolanaJSONParsed decodes real v4 parser
+// TestDecodeSolanaIntermediateOutput_MaxFeeLamportsRoundTrip pins the trailing
+// schema_version 5 field: a caller cap round-trips through Borsh
+// encode/decode, the version leads and the cap trails (as intermediate.rs
+// intermediate_output_round_trip_is_deterministic asserts), and output that
+// stops where the cap should start -- a schema_version 4 body under a 5
+// header -- is refused rather than decoded with a zero cap.
+func TestDecodeSolanaIntermediateOutput_MaxFeeLamportsRoundTrip(t *testing.T) {
+	const callerCap uint64 = 5_105_000
+	in := SolanaIntermediateOutput{
+		SchemaVersion: SolanaIntermediateSchemaVersion,
+		Instructions: []SolanaIntermediateInstruction{
+			{ProgramKey: "11111111111111111111111111111111", RegisteredSource: RegisteredSourceNative},
+		},
+		MaxFeeLamports: callerCap,
+	}
+	raw, err := borsh.Serialize(in)
+	require.NoError(t, err)
+	require.Equal(t, []byte{5, 0}, raw[:2], "schema_version leads, little-endian u16")
+	require.Equal(t, []byte{0x68, 0xe5, 0x4d, 0, 0, 0, 0, 0}, raw[len(raw)-8:], "max_fee_lamports trails, little-endian u64")
+
+	out, err := DecodeSolanaIntermediateOutput(raw)
+	require.NoError(t, err)
+	require.Equal(t, callerCap, out.MaxFeeLamports)
+
+	t.Run("body without the trailing cap is refused", func(t *testing.T) {
+		_, err := DecodeSolanaIntermediateOutput(raw[:len(raw)-8])
+		require.ErrorContains(t, err, "borsh-decode solana intermediate output")
+
+		// The same cut on real parser output: the schema_version 4 layout
+		// under a 5 header must not pass as a zero cap.
+		_, real := loadSolanaIntermediateSample(t)
+		_, err = DecodeSolanaIntermediateOutput(real[:len(real)-8])
+		require.ErrorContains(t, err, "borsh-decode solana intermediate output")
+	})
+}
+
+// TestDecodeSolanaIntermediateOutput_SolanaJSONParsed decodes real v5 parser
 // output (testdata/solana_intermediate_json_parsed_sample.json) for a Compute
 // Budget instruction plus a System transfer. Both are Native: since
 // schema_version 4 each carries a native ParsedInstructionData (Compute
 // Budget by the parser's own decoder, which Solana's jsonParsed lacks) next
 // to SolanaJSONParsedData. The jsonParsed fields follow RegisteredSource, so
-// a wrong field order would shift the bytes and fail.
+// a wrong field order would shift the bytes and fail; the trailing
+// schema_version 5 cap is the parser default since the CLI was given none.
 func TestDecodeSolanaIntermediateOutput_SolanaJSONParsed(t *testing.T) {
 	var s struct {
 		IntermediateOutputHex string `json:"intermediateOutputHex"`
@@ -285,6 +332,7 @@ func TestDecodeSolanaIntermediateOutput_SolanaJSONParsed(t *testing.T) {
 	}, transfer.ParsedInstructionData)
 	require.Len(t, out.Transfers, 1)
 	require.Equal(t, "1001", out.Transfers[0].Amount)
+	require.Equal(t, SolanaDefaultMaxFeeLamports, out.MaxFeeLamports)
 }
 
 // TestDecodeSolanaIntermediateOutput_SolanaJSONParseErrorRoundTrip pins the

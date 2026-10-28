@@ -11,6 +11,7 @@ import (
 
 func strPtr(s string) *string       { return &s }
 func abiTypePtr(t AbiType) *AbiType { return &t }
+func uint64Ptr(v uint64) *uint64    { return &v }
 
 // TestMetadataDigestHex_Fixture pins the Go Borsh encoding against a known digest
 // computed by the Rust visualsign-parser. To regenerate after a schema change:
@@ -229,6 +230,30 @@ func TestMetadataDigestHex_UnknownAbiType(t *testing.T) {
 	_, err := meta.MetadataDigestHex()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown abi_type")
+}
+
+// TestMetadataDigestHex_SolanaMaxFeeLamports verifies MaxFeeLamports is part
+// of the digest and that nil (proto None) differs from an explicit value equal
+// to the parser's default (Some(100000000)): the parser hashes what was sent,
+// not the cap it ends up applying. The explicit-default digest is pinned to
+// real Rust borsh::to_vec output (parser PR #625 head 5ab81422).
+func TestMetadataDigestHex_SolanaMaxFeeLamports(t *testing.T) {
+	solana := func(cap *uint64) *RequestChainMetadata {
+		return &RequestChainMetadata{Solana: &SolanaChainMetadata{MaxFeeLamports: cap}}
+	}
+
+	none, err := solana(nil).MetadataDigestHex()
+	require.NoError(t, err)
+
+	explicitDefault, err := solana(uint64Ptr(100_000_000)).MetadataDigestHex()
+	require.NoError(t, err)
+	require.Equal(t, "fb68ceb32b4c047d901ee70d71d50c976dbd20b07f58de800e24684d86a4b805", explicitDefault,
+		"Borsh encoding diverged from the Rust parser")
+	require.NotEqual(t, none, explicitDefault, "nil MaxFeeLamports (None) must differ from an explicit cap (Some)")
+
+	other, err := solana(uint64Ptr(5_105_000)).MetadataDigestHex()
+	require.NoError(t, err)
+	require.NotEqual(t, explicitDefault, other, "the cap's value must be part of the digest")
 }
 
 // TestBorshBytes_NilReceiver returns the Borsh encoding of

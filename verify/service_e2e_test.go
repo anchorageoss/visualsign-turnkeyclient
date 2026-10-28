@@ -95,6 +95,8 @@ func TestVerifyEndToEnd_IntermediateOutputAgainstGatewayResponse(t *testing.T) {
 	require.Equal(t, SolanaIntermediateSchemaVersion, result.IntermediateOutput.SchemaVersion)
 	require.Len(t, result.IntermediateOutput.Transfers, 1)
 	require.Equal(t, "1000000000", result.IntermediateOutput.Transfers[0].Amount)
+	// No cap was sent, so the trailing field is the parser default.
+	require.Equal(t, SolanaDefaultMaxFeeLamports, result.IntermediateOutput.MaxFeeLamports)
 }
 
 // appAttestationSEC1 extracts the 65-byte SEC1 public key from the app
