@@ -18,19 +18,41 @@ import (
 // Vec<T> -> []T, Option<T> -> *T, u16 -> uint16, u32 -> uint32,
 // u64 -> uint64, i32 -> int32, BTreeMap<String,String> -> map[string]string.
 // JSON tags drive the verify command's structured output and do not affect
-// Borsh (which is positional).
+// Borsh (which is positional). SolanaIntermediateOutput is the decoded result
+// shared by every supported schema_version; the wire layouts it is decoded
+// from are the unexported solanaIntermediateFrame* structs.
 
-// SolanaIntermediateSchemaVersion is the schema_version this client understands.
-// It matches SOLANA_INTERMEDIATE_SCHEMA_VERSION in the parser's intermediate.rs.
+// SolanaIntermediateMinSchemaVersion and SolanaIntermediateMaxSchemaVersion
+// bound the schema_version values DecodeSolanaIntermediateOutput accepts. Max
+// matches SOLANA_INTERMEDIATE_SCHEMA_VERSION in the parser's intermediate.rs.
 //
-// Exactly this version is accepted (see DecodeSolanaIntermediateOutput), so a
-// parser and a consumer of this package must move to a new version together.
-const SolanaIntermediateSchemaVersion uint16 = 5
+// Every version in the range is decoded with its own layout (the frame structs
+// below), so a client built from this package works against a parser on either
+// side of a schema rollout and can ship before the parser does. A version
+// outside the range is refused rather than guessed at.
+//
+//   - 4: the layout mirrored since parser PR #546 (client PR #39).
+//   - 5: wraps 4 in a frame (parser PR #625): native_instruction_decoder right
+//     after the version, max_fee_lamports after the body, and the
+//     SolanaSimulationErrorSimulationUnsupported variant.
+const (
+	SolanaIntermediateMinSchemaVersion uint16 = 4
+	SolanaIntermediateMaxSchemaVersion uint16 = 5
+)
+
+// SolanaIntermediateSchemaVersion is the newest schema_version this client
+// understands.
+//
+// Deprecated: the decoder accepts a range of versions. Use
+// SolanaIntermediateMinSchemaVersion and SolanaIntermediateMaxSchemaVersion,
+// and read SolanaIntermediateOutput.SchemaVersion for the version an output
+// carries.
+const SolanaIntermediateSchemaVersion = SolanaIntermediateMaxSchemaVersion
 
 // SolanaDefaultMaxFeeLamports is the fee cap the parser applies when the
 // request sends no api.SolanaChainMetadata.MaxFeeLamports: 0.1 SOL
 // (priority_fee.rs DEFAULT_MAX_FEE_LAMPORTS). It is the value
-// SolanaIntermediateOutput.MaxFeeLamports carries for such a request. The
+// SolanaIntermediateOutput.MaxFeeLamports points to for such a request. The
 // default is parser behavior, not part of the Borsh layout, so a change to it
 // does not bump the schema version.
 const SolanaDefaultMaxFeeLamports uint64 = 100_000_000
@@ -75,6 +97,11 @@ func (s RegisteredSource) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.String())
 }
 
+// known reports whether s is a variant intermediate.rs RegisteredSource declares.
+func (s RegisteredSource) known() bool {
+	return s <= RegisteredSourceUnregistered
+}
+
 // SolanaNativeInstructionDecoder mirrors intermediate.rs
 // SolanaNativeInstructionDecoder: the native decoding the parser build that
 // produced the output has. It is a build capability, not a per-instruction
@@ -106,6 +133,12 @@ func (d SolanaNativeInstructionDecoder) String() string {
 
 func (d SolanaNativeInstructionDecoder) MarshalJSON() ([]byte, error) {
 	return json.Marshal(d.String())
+}
+
+// known reports whether d is a variant intermediate.rs
+// SolanaNativeInstructionDecoder declares.
+func (d SolanaNativeInstructionDecoder) known() bool {
+	return d <= SolanaNativeInstructionDecoderJSONParsed
 }
 
 // SolanaSimulationError mirrors intermediate.rs SolanaSimulationError: why a
@@ -154,16 +187,26 @@ func (e SolanaSimulationError) MarshalJSON() ([]byte, error) {
 	return json.Marshal(e.String())
 }
 
-// SolanaIntermediateOutput mirrors intermediate.rs SolanaIntermediateOutput.
-// schema_version is the first field so decoders can gate on it before trusting
-// the remaining layout. schema_version 5 wraps the previous layout:
-// native_instruction_decoder follows the version, and max_fee_lamports is the
-// last field, read only after every field the previous layout already had.
+// known reports whether e is a variant intermediate.rs SolanaSimulationError
+// declares. 0 is not one: it is the value borsh-go gives an Option::None, which
+// normalizeOptionals turns back into nil before this is consulted.
+func (e SolanaSimulationError) known() bool {
+	return e >= SolanaSimulationErrorInvalidBase64 && e <= SolanaSimulationErrorSimulationUnsupported
+}
+
+// SolanaIntermediateOutput is the decoded Solana intermediate output of any
+// supported schema_version, in the shape of intermediate.rs
+// SolanaIntermediateOutput at SolanaIntermediateMaxSchemaVersion. It is not
+// itself the Borsh mirror: each schema_version has its own wire layout, the
+// unexported frame structs below, and DecodeSolanaIntermediateOutput maps the
+// decoded frame here. The two fields schema_version 5 added are pointers, nil
+// for a schema_version 4 output, which does not carry them, so their absence
+// cannot be mistaken for a zero value.
 type SolanaIntermediateOutput struct {
 	SchemaVersion uint16 `json:"schemaVersion"`
 	// NativeInstructionDecoder is the native decoding the parser build has.
-	// Added in schema_version 5.
-	NativeInstructionDecoder SolanaNativeInstructionDecoder  `json:"nativeInstructionDecoder"`
+	// Added in schema_version 5; nil for 4.
+	NativeInstructionDecoder *SolanaNativeInstructionDecoder `json:"nativeInstructionDecoder,omitempty"`
 	AccountKeys              []string                        `json:"accountKeys"`
 	ProgramKeys              []string                        `json:"programKeys"`
 	Instructions             []SolanaIntermediateInstruction `json:"instructions"`
@@ -190,14 +233,76 @@ type SolanaIntermediateOutput struct {
 	// the fee the transaction can pay, and a consumer can apply its own fee
 	// policy to it without re-parsing the payload. The value alone does not
 	// say whether the default or a caller cap applied. Added in
-	// schema_version 5 as the last field.
-	MaxFeeLamports uint64 `json:"maxFeeLamports"`
+	// schema_version 5 as the last field; nil for 4, whose parser applied no
+	// cap.
+	MaxFeeLamports *uint64 `json:"maxFeeLamports,omitempty"`
+}
+
+// solanaIntermediateBody is the part of the intermediate output whose layout
+// schema_version 4 and 5 share, field for field in the Rust declaration order.
+// Borsh writes a nested struct as its fields in order with no framing of its
+// own, so a frame that holds a Body occupies exactly the bytes the Rust
+// struct's fields do.
+type solanaIntermediateBody struct {
+	AccountKeys           []string
+	ProgramKeys           []string
+	Instructions          []SolanaIntermediateInstruction
+	Transfers             []SolTransfer
+	SplTransfers          []SplTransfer
+	RecentBlockhash       string
+	AddressTableLookups   []SolanaAddressTableLookup
+	SimulatedInstructions []SolanaSimulatedInstruction
+	SimulationError       *SolanaSimulationError
+}
+
+// solanaIntermediateFrameV4 mirrors intermediate.rs SolanaIntermediateOutput at
+// schema_version 4: the version, then the body.
+type solanaIntermediateFrameV4 struct {
+	SchemaVersion uint16
+	Body          solanaIntermediateBody
+}
+
+// solanaIntermediateFrameV5 mirrors intermediate.rs SolanaIntermediateOutput at
+// schema_version 5: the version, the native decoder tag, the body, and the
+// trailing cap.
+type solanaIntermediateFrameV5 struct {
+	SchemaVersion            uint16
+	NativeInstructionDecoder SolanaNativeInstructionDecoder
+	Body                     solanaIntermediateBody
+	MaxFeeLamports           uint64
+}
+
+func (b *solanaIntermediateBody) output(version uint16) *SolanaIntermediateOutput {
+	return &SolanaIntermediateOutput{
+		SchemaVersion:         version,
+		AccountKeys:           b.AccountKeys,
+		ProgramKeys:           b.ProgramKeys,
+		Instructions:          b.Instructions,
+		Transfers:             b.Transfers,
+		SplTransfers:          b.SplTransfers,
+		RecentBlockhash:       b.RecentBlockhash,
+		AddressTableLookups:   b.AddressTableLookups,
+		SimulatedInstructions: b.SimulatedInstructions,
+		SimulationError:       b.SimulationError,
+	}
+}
+
+func (f *solanaIntermediateFrameV4) output() *SolanaIntermediateOutput {
+	return f.Body.output(f.SchemaVersion)
+}
+
+func (f *solanaIntermediateFrameV5) output() *SolanaIntermediateOutput {
+	out := f.Body.output(f.SchemaVersion)
+	decoder, maxFee := f.NativeInstructionDecoder, f.MaxFeeLamports
+	out.NativeInstructionDecoder = &decoder
+	out.MaxFeeLamports = &maxFee
+	return out
 }
 
 // SolanaIntermediateInstruction mirrors intermediate.rs SolanaIntermediateInstruction.
 // Field order matches the Rust struct exactly (Borsh is positional and has no
-// field-skipping). SolanaIntermediateSchemaVersion is what carries
-// compatibility here: any field change must bump it.
+// field-skipping). The schema_version is what carries compatibility here:
+// any field change must bump it.
 type SolanaIntermediateInstruction struct {
 	ProgramKey          string                           `json:"programKey"`
 	Accounts            []SolanaAccount                  `json:"accounts"`
@@ -373,9 +478,12 @@ func (e *SolanaIdlParseError) isZero() bool {
 }
 
 // DecodeSolanaIntermediateOutput decodes the raw Borsh bytes of the parser's
-// Solana intermediate output. It rejects any schema_version other than the one
-// this client mirrors, so a parser-side layout change surfaces as an explicit
-// error rather than a silently misdecoded struct.
+// Solana intermediate output. It accepts schema_version
+// SolanaIntermediateMinSchemaVersion through SolanaIntermediateMaxSchemaVersion,
+// each with its own layout, and refuses any other version, bytes left over
+// after the frame, and enum discriminants it cannot name, so a parser-side
+// layout change surfaces as an explicit error rather than a silently
+// misdecoded struct.
 func DecodeSolanaIntermediateOutput(b []byte) (*SolanaIntermediateOutput, error) {
 	// Gate on schema_version (the leading u16, little-endian) before decoding
 	// the rest: another version's layout would otherwise fail mid-decode with
@@ -383,24 +491,90 @@ func DecodeSolanaIntermediateOutput(b []byte) (*SolanaIntermediateOutput, error)
 	if len(b) < 2 {
 		return nil, fmt.Errorf("solana intermediate output too short for schema_version: %d bytes", len(b))
 	}
-	if v := binary.LittleEndian.Uint16(b); v != SolanaIntermediateSchemaVersion {
+	version := binary.LittleEndian.Uint16(b)
+	var out *SolanaIntermediateOutput
+	switch version {
+	case 4:
+		frame, err := decodeFrame[solanaIntermediateFrameV4](version, b)
+		if err != nil {
+			return nil, err
+		}
+		out = frame.output()
+	case 5:
+		frame, err := decodeFrame[solanaIntermediateFrameV5](version, b)
+		if err != nil {
+			return nil, err
+		}
+		out = frame.output()
+	default:
 		return nil, fmt.Errorf(
-			"unsupported solana intermediate output schema_version %d (this client supports %d)",
-			v, SolanaIntermediateSchemaVersion)
+			"unsupported solana intermediate output schema_version %d (this client supports %d through %d)",
+			version, SolanaIntermediateMinSchemaVersion, SolanaIntermediateMaxSchemaVersion)
 	}
-	var out SolanaIntermediateOutput
-	if err := borsh.Deserialize(&out, b); err != nil {
+	normalizeOptionals(out)
+	if err := checkDiscriminants(out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// decodeFrame decodes b as exactly one schema_version frame of type F.
+//
+// borsh-go v0.3.1 reads the struct and stops: it reports nothing about bytes
+// left in the input, while Rust's borsh::from_slice refuses them ("Not all
+// bytes read"). Ignoring them is how a reader one field behind decodes a newer
+// frame "successfully" and drops what it did not know to read; a
+// schema_version 4 reader given a 5 frame never sees max_fee_lamports. The
+// library offers no reader that counts what it consumed, and the hand-written
+// borshReader in near_intermediate.go is not reused here because this layout
+// has nested structs, a map and a complex enum, so a hand reader would
+// reimplement most of borsh-go. The check is instead a second decode of b
+// without its last byte. Borsh reads sequentially, so that decode follows the
+// first byte for byte and fails exactly when the first consumed the byte that
+// was removed, whatever the last field's type: a frame that filled b exactly
+// fails it, and one that still succeeds proves b carried bytes the frame did
+// not use.
+func decodeFrame[F any](version uint16, b []byte) (*F, error) {
+	var frame F
+	if err := borsh.Deserialize(&frame, b); err != nil {
 		return nil, fmt.Errorf("borsh-decode solana intermediate output: %w", err)
 	}
-	// Rust's deserializer rejects an unknown discriminant. Mirror that for the
-	// capability tag that frames the output rather than carry a build
-	// capability this client cannot name.
-	if d := out.NativeInstructionDecoder; d != SolanaNativeInstructionDecoderComputeBudgetOnly &&
-		d != SolanaNativeInstructionDecoderJSONParsed {
-		return nil, fmt.Errorf("unknown solana intermediate output native_instruction_decoder %d", uint8(d))
+	var unused F
+	if borsh.Deserialize(&unused, b[:len(b)-1]) == nil {
+		return nil, fmt.Errorf("solana intermediate output has trailing bytes after its schema_version %d frame", version)
 	}
-	normalizeOptionals(&out)
-	return &out, nil
+	return &frame, nil
+}
+
+// checkDiscriminants refuses an enum value this client cannot name, as Rust's
+// deserializer refuses an unknown discriminant, instead of carrying one that
+// would render as e.g. "SolanaSimulationError(8)". borsh-go accepts any byte
+// for a simple enum, so this runs after the decode and after normalizeOptionals
+// has turned a None simulation_error back into nil; it bounds-checks the
+// complex SolanaIdlParseError enum itself. Two encodings Rust refuses still
+// pass: an Option tag other than 0 or 1, which borsh-go reads as Some, and a
+// simulation_error of Some(0), which normalizeOptionals reads as None. Neither
+// can come from a layout skew between parser versions, which is what this
+// check and the trailing-bytes check guard against, and the bytes are under
+// the enclave signature, so they are left to borsh-go.
+func checkDiscriminants(out *SolanaIntermediateOutput) error {
+	if d := out.NativeInstructionDecoder; d != nil && !d.known() {
+		return fmt.Errorf("unknown solana intermediate output native_instruction_decoder %d", uint8(*d))
+	}
+	if e := out.SimulationError; e != nil && !e.known() {
+		return fmt.Errorf("unknown solana intermediate output simulation_error %d", uint8(*e))
+	}
+	for i := range out.Instructions {
+		if s := out.Instructions[i].RegisteredSource; !s.known() {
+			return fmt.Errorf("unknown solana intermediate output registered_source %d on instruction %d", uint8(s), i)
+		}
+	}
+	for i := range out.SimulatedInstructions {
+		if s := out.SimulatedInstructions[i].RegisteredSource; !s.known() {
+			return fmt.Errorf("unknown solana intermediate output registered_source %d on simulated instruction %d", uint8(s), i)
+		}
+	}
+	return nil
 }
 
 // normalizeOptionals restores Go nil for Borsh Option::None fields. borsh-go
