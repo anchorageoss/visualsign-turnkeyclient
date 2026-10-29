@@ -108,6 +108,7 @@ type borshSolanaMetadata struct {
 	Idl                        *borshIdl              // Option<Idl>
 	IdlMappings                []borshIdlMappingEntry // BTreeMap<String, Idl> — must be sorted by ProgramID
 	SimulatedTransactionResult *string                // Option<String> — base64 raw simulateTransaction RPC response
+	MaxFeeLamports             *uint64                // Option<u64> — proto tag 6; a tag byte then eight little-endian bytes
 }
 
 // borshIdl mirrors parser.rs Idl in Rust declaration order.
@@ -283,6 +284,7 @@ func (r *RequestChainMetadata) toBorshChainMetadataSolana() (borshChainMetadata,
 				// TODO: pass real entries once SolanaChainMetadata exposes IdlMappings.
 				IdlMappings:                sortIdlMappings(nil),
 				SimulatedTransactionResult: rawJSON,
+				MaxFeeLamports:             sol.MaxFeeLamports,
 			},
 		},
 	}, nil

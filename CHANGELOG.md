@@ -8,8 +8,15 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 ## [Unreleased]
 
 ### Added
+- `api.SolanaChainMetadata.MaxFeeLamports` (wire key `maxFeeLamports`, sent as a JSON number and accepted as a number or a decimal string): a per-transaction cap on base fee plus priority fee, in lamports. The parser renders the cap in force as a top-level "Max Fee" row, applies a default of 0.1 SOL when the field is absent, and rejects a transaction that commits to more
+- `verify.SolanaIntermediateOutput.MaxFeeLamports` (`*uint64`, nil for a schema_version 4 output), the cap in force, carried as the trailing field of Solana intermediate output schema_version 5, and `verify.SolanaDefaultMaxFeeLamports`, the parser default it points to when the request sent no cap
+- `verify.SolanaNativeInstructionDecoder` (`ComputeBudgetOnly`, `JsonParsed`), the parser build's native decoding capability that schema_version 5 places right after the version, surfaced as `SolanaIntermediateOutput.NativeInstructionDecoder` (nil for schema_version 4); and `verify.SolanaSimulationErrorSimulationUnsupported` (7), set by a parser built without its simulation feature
+- `verify.SolanaIntermediateMinSchemaVersion` (4) and `verify.SolanaIntermediateMaxSchemaVersion` (5)
 - NEAR support in `verify`: `--chain CHAIN_NEAR` selects the NEAR decoder for `--include-intermediate-output`, and `--chain-metadata` accepts a `near` variant carrying signed per-asset token mappings keyed by NEAR Intents asset id
 - QOS JSON (v2) manifest envelope parsing, hashed via QOS canonical JSON per the [qos_json spec](https://github.com/tkhq/qos/blob/main/src/qos_json/SPEC.md), and rejects duplicate keys, unknown fields, and non-`"v2"` versions
+
+### Deprecated
+- `verify.SolanaIntermediateSchemaVersion`, now an alias for `SolanaIntermediateMaxSchemaVersion` (5); use the min/max pair and `SolanaIntermediateOutput.SchemaVersion`. Its value moves from 4 to 5, so a consumer that compared `SchemaVersion` against it must compare against the range instead
 
 ### Removed
 - **Breaking:** legacy Borsh QoS manifest decode path. Only QOS JSON (v2) manifest envelopes are decoded (a raw manifest without an envelope is still hash-compared against UserData). Removed `manifest.ManifestVersion` (`V1`/`V2`), the V1 manifest types, `DecodeRawManifestFrom*`, `DecodeManifestFrom*`, `DetectEnvelopeFormat`, and `api.SignablePayloadResponse.ManifestVersion`. `DecodeManifestEnvelopeFrom*` no longer take a version argument.
@@ -18,6 +25,9 @@ Versions are computed automatically from git commit history via `scripts/auto-ve
 - **Breaking:** `verify --api-version` only accepts `v2`
 
 ### Changed
+- `DecodeSolanaIntermediateOutput` accepts Solana intermediate output schema_version 4 through 5 (visualsign-parser #625), each with its own layout: 5 places a `native_instruction_decoder` tag after the version and a `max_fee_lamports` cap after the previous layout. A client at this release therefore works against a parser on either side of the rollout and can ship first. `verify.SolanaIntermediateOutput` is now the decoded result for either version and no longer a Borsh mirror of the wire layout; `borsh.Serialize` of it does not produce parser bytes
+- `DecodeSolanaIntermediateOutput` refuses bytes left over after the frame and enum discriminants it cannot name (`RegisteredSource`, `SolanaSimulationError`, the decoder tag), as the parser's own Borsh decoder does. borsh-go stops reading when the struct is complete, and a reader that ignores what follows would drop a trailing field such as the cap without an error
+- **Breaking:** the Solana `metadataDigest` covers the trailing `max_fee_lamports` field of the Borsh-encoded `ChainMetadata`, so every Solana request that carries `chain_metadata` hashes differently from a parser without #625, even when the field is absent. This client against an older parser fails closed on the digest check for such requests, and the previous client against a #625 parser does the same; send Solana `chain_metadata` only once both are live
 - The intermediate-output decoder is selected by `VerifyResponseRequest.Chain`. Borsh carries no chain tag of its own, so `VerifyResponse` now requires `Chain` to decode a non-empty intermediate output rather than assuming Solana
 - **Breaking:** `verify.Verify` now requires `VerifyRequest.Chain` and returns an error when it is empty, instead of silently defaulting to `CHAIN_SOLANA`
 - **Breaking:** `verify` fails when a QoS manifest is present but the boot attestation UserData is empty, instead of skipping the manifest hash binding
