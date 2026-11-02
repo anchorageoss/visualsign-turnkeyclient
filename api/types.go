@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strconv"
 )
 
 // TurnkeyAPIKey represents the API key configuration
@@ -151,10 +152,12 @@ type EthereumChainMetadata struct {
 	ABIMappings map[string]ABIValue `json:"abiMappings,omitempty"`
 }
 
-// SolanaChainMetadata carries optional simulation-derived data for Solana
-// parse requests, letting the parser flag registered/unregistered status for
-// instructions that only exist at execution time and are never present in
-// the raw unsigned transaction the parser otherwise decodes.
+// SolanaChainMetadata carries optional per-request data for Solana parse
+// requests. SimulatedTransactionResult lets the parser flag
+// registered/unregistered status for instructions that only exist at
+// execution time and are never present in the raw unsigned transaction the
+// parser otherwise decodes; MaxFeeLamports caps the fee the transaction may
+// commit to.
 type SolanaChainMetadata struct {
 	// SimulatedTransactionResult is the raw simulateTransaction RPC response
 	// bytes (innerInstructions section), sent as-is with no backend-side
@@ -162,6 +165,64 @@ type SolanaChainMetadata struct {
 	// path (parse_transaction_with_idls) it already uses for
 	// unsigned_payload.
 	SimulatedTransactionResult []byte `json:"simulatedTransactionResult,omitempty"`
+	// MaxFeeLamports is the most the transaction may pay in base fee plus
+	// priority fee, in lamports. nil means the field is omitted (proto None)
+	// and the parser's default cap of 0.1 SOL
+	// (verify.SolanaDefaultMaxFeeLamports) applies. The cap in force is
+	// rendered as the top-level "Max Fee" row and, with
+	// IncludeIntermediateOutput, carried as the trailing MaxFeeLamports of
+	// verify.SolanaIntermediateOutput; the parser rejects the request when
+	// the transaction commits to more. Marshalled as a JSON number, which
+	// the parser and protojson both accept; UnmarshalJSON also accepts the
+	// decimal string protojson emits for a uint64.
+	MaxFeeLamports *uint64 `json:"maxFeeLamports,omitempty"`
+}
+
+// UnmarshalJSON reads maxFeeLamports as a JSON number or as the decimal
+// string protojson emits for a uint64, so a value copied from either side of
+// the gateway parses the same way. Every other field decodes as usual.
+func (m *SolanaChainMetadata) UnmarshalJSON(data []byte) error {
+	// plain has the same fields but none of the methods, so decoding into it
+	// does not recurse into this method.
+	type plain SolanaChainMetadata
+	var aux struct {
+		plain
+		// Shadows the embedded field of the same name: encoding/json fills
+		// the shallower of two fields with one JSON key.
+		MaxFeeLamports json.RawMessage `json:"maxFeeLamports"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*m = SolanaChainMetadata(aux.plain)
+	m.MaxFeeLamports = nil
+	if len(aux.MaxFeeLamports) == 0 || string(aux.MaxFeeLamports) == "null" {
+		return nil
+	}
+	v, err := parseUint64JSON(aux.MaxFeeLamports)
+	if err != nil {
+		return fmt.Errorf("maxFeeLamports: %w", err)
+	}
+	m.MaxFeeLamports = &v
+	return nil
+}
+
+// parseUint64JSON reads a uint64 from its JSON number form or its decimal
+// string form. A negative, fractional, or otherwise non-numeric value is an
+// error: the parser would reject it, and a wrong cap must not be sent
+// silently.
+func parseUint64JSON(raw json.RawMessage) (uint64, error) {
+	s := string(raw)
+	if len(s) > 0 && s[0] == '"' {
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return 0, err
+		}
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("want a uint64 as a JSON number or decimal string, got %s", raw)
+	}
+	return v, nil
 }
 
 // RequestChainMetadata is the chain_metadata field in the Turnkey parse request.

@@ -2,10 +2,14 @@ package api
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"testing"
 
 	borsh "github.com/near/borsh-go"
+
+	"github.com/anchorageoss/visualsign-turnkeyclient/testdata"
 )
 
 // TestCrosscheckGoVsRustOnDeployedProto pins Go's Borsh against Rust borsh::to_vec
@@ -106,13 +110,16 @@ func TestCrosscheckGoVsRustOnDeployedProto(t *testing.T) {
 // metadata against real Rust borsh::to_vec output, the same way
 // TestCrosscheckGoVsRustOnDeployedProto does for Ethereum. Ground truth was
 // computed by running borsh::to_vec over generated::parser::ChainMetadata
-// (Solana variant) from visualsign-parser HEAD. Regenerate after any change
-// to SolanaMetadata's field layout.
+// (Solana variant) from visualsign-parser PR #625 head 5ab81422, which adds
+// the trailing max_fee_lamports (proto tag 6, Option<u64>): every encoding
+// now ends with its tag byte, 00 when the cap is absent. Regenerate after any
+// change to SolanaMetadata's field layout.
 //
 // SolanaChainMetadata exposes no public field for NetworkID, Idl, or
 // IdlMappings yet, so the cases here cover the reachable shapes: nothing set,
-// and SimulatedTransactionResult set. TestCrosscheckGoVsRustSolanaIdlMappings
-// covers the IdlMappings encoding directly.
+// SimulatedTransactionResult set, MaxFeeLamports set, and both.
+// TestCrosscheckGoVsRustSolanaIdlMappings covers the IdlMappings encoding
+// directly.
 func TestCrosscheckGoVsRustSolana(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -125,8 +132,8 @@ func TestCrosscheckGoVsRustSolana(t *testing.T) {
 			meta: &RequestChainMetadata{
 				Solana: &SolanaChainMetadata{},
 			},
-			rustBytes:  "010100000000000000",
-			rustDigest: "46f8ec5a439c92e1df8299e1a4432a7ee172d8496b5e33e0a35a7b67163371b5",
+			rustBytes:  "01010000000000000000",
+			rustDigest: "627d256f1d5abaa3a870e08d021ec18b8112b3e6ff0ef4a15a948eac307b20dd",
 		},
 		{
 			name: "simulated_transaction_result only",
@@ -135,8 +142,28 @@ func TestCrosscheckGoVsRustSolana(t *testing.T) {
 					SimulatedTransactionResult: []byte(`{"foo":"bar"}`),
 				},
 			},
-			rustBytes:  "0101000000000000011400000065794a6d623238694f694a695958496966513d3d",
-			rustDigest: "a634909f1ca8a29434f6ae3b1869d27af08ec2376d3e473df3275430d457b2e5",
+			rustBytes:  "0101000000000000011400000065794a6d623238694f694a695958496966513d3d00",
+			rustDigest: "9f98b2bbdc50136f8352ec58b49cc675ee8a90e62dbf487541389c600cd52271",
+		},
+		{
+			// Some(5_105_000): tag 01, then 0x4DE568 little-endian in eight bytes.
+			name: "max_fee_lamports only",
+			meta: &RequestChainMetadata{
+				Solana: &SolanaChainMetadata{MaxFeeLamports: uint64Ptr(5_105_000)},
+			},
+			rustBytes:  "0101000000000000000168e54d0000000000",
+			rustDigest: "99208a492cb61d126412a3750f7384fb67b0f0fc7bd6ed04610ce1eed378d4f1",
+		},
+		{
+			name: "simulated_transaction_result + max_fee_lamports",
+			meta: &RequestChainMetadata{
+				Solana: &SolanaChainMetadata{
+					SimulatedTransactionResult: []byte(`{"foo":"bar"}`),
+					MaxFeeLamports:             uint64Ptr(5_105_000),
+				},
+			},
+			rustBytes:  "0101000000000000011400000065794a6d623238694f694a695958496966513d3d0168e54d0000000000",
+			rustDigest: "b1ff76a3f039e921e94603c7639d0d04e3a1f026e2c0a1a0f9198ed12c9b6603",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -161,11 +188,13 @@ func TestCrosscheckGoVsRustSolana(t *testing.T) {
 }
 
 // TestCrosscheckGoVsRustSolanaIdlMappings pins the idl_mappings encoding
-// against real Rust borsh::to_vec output. Rust declares idl_mappings as a
-// BTreeMap, so the ground truth encodes aaaProgram first even though the probe
-// inserted zzzProgram first; sortIdlMappings is what makes Go agree.
+// against real Rust borsh::to_vec output (parser PR #625 head 5ab81422).
+// Rust declares idl_mappings as a BTreeMap, so the ground truth encodes
+// aaaProgram first even though the probe inserted zzzProgram first;
+// sortIdlMappings is what makes Go agree. The final two 00 bytes are
+// simulated_transaction_result and max_fee_lamports, both None.
 func TestCrosscheckGoVsRustSolanaIdlMappings(t *testing.T) {
-	const rustBytes = "01010000020000000a00000061616150726f6772616d070000007b2261223a317d01010000000106000000302e33302e3000010b0000004a7570697465724c656e640a0000007a7a7a50726f6772616d070000007b227a223a317d0000000000"
+	const rustBytes = "01010000020000000a00000061616150726f6772616d070000007b2261223a317d01010000000106000000302e33302e3000010b0000004a7570697465724c656e640a0000007a7a7a50726f6772616d070000007b227a223a317d000000000000"
 
 	idlType := int32(1) // SolanaIdlType::Anchor
 
@@ -191,5 +220,41 @@ func TestCrosscheckGoVsRustSolanaIdlMappings(t *testing.T) {
 	}
 	if got := hex.EncodeToString(goBytes); got != rustBytes {
 		t.Errorf("byte mismatch:\n go:   %s\n rust: %s", got, rustBytes)
+	}
+}
+
+// TestCrosscheckGoVsRustSolanaSimulatedFixture recomputes the metadataDigest
+// the parser reported for testdata/solana_intermediate_simulated_sample.json
+// from the simulateTransaction result that request carried, through the same
+// RequestChainMetadata encoding the client sends. Unlike the probe-derived
+// cases above, the ground truth here is a digest the parser computed for a
+// real request, and it covers the trailing max_fee_lamports (None for that
+// request), so it is parser-produced evidence for the trailing
+// max_fee_lamports in borshSolanaMetadata.
+func TestCrosscheckGoVsRustSolanaSimulatedFixture(t *testing.T) {
+	var fixture struct {
+		SimulatedTransactionResultB64 string `json:"simulatedTransactionResultB64"`
+		MetadataDigest                string `json:"metadataDigest"`
+	}
+	if err := json.Unmarshal(testdata.SolanaIntermediateSimulatedSampleJSON, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	simulation, err := base64.StdEncoding.DecodeString(fixture.SimulatedTransactionResultB64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(simulation) == 0 || fixture.MetadataDigest == "" {
+		t.Fatal("fixture must carry the simulation input and the parser's metadataDigest")
+	}
+
+	meta := &RequestChainMetadata{
+		Solana: &SolanaChainMetadata{SimulatedTransactionResult: simulation},
+	}
+	got, err := meta.MetadataDigestHex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != fixture.MetadataDigest {
+		t.Errorf("digest mismatch: go=%s parser=%s", got, fixture.MetadataDigest)
 	}
 }
